@@ -17,7 +17,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { DEFAULT_MAX_INSTRUCTION_BYTES, RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from './connection.ts'
+import { DEFAULT_MAX_INSTRUCTION_BYTES, DEFAULT_MAX_PRESENTATION_META_BYTES, RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from './connection.ts'
 import type { ReconnectConfig } from './connection.ts'
 import { registerServerContext } from './server-context.ts'
 // Side-effect type import: declaration-merges `ctx.tools` onto Context.
@@ -72,6 +72,8 @@ export interface StdioConfig {
   failOnStartupError: boolean
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
   maxInstructionBytes?: number
+  /** Maximum UTF-8 bytes of one serialized `dsh/presentation` result payload (default 65536). */
+  maxPresentationMetaBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
 }
@@ -96,6 +98,8 @@ export interface StreamableHttpConfig {
   failOnStartupError: boolean
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
   maxInstructionBytes?: number
+  /** Maximum UTF-8 bytes of one serialized `dsh/presentation` result payload (default 65536). */
+  maxPresentationMetaBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
 }
@@ -127,6 +131,7 @@ export const Config = z.union([
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
     failOnStartupError: z.boolean().default(false),
     maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
+    maxPresentationMetaBytes: z.number().step(1).min(1).default(DEFAULT_MAX_PRESENTATION_META_BYTES),
     reconnect: Reconnect,
   }),
   z.object({
@@ -137,6 +142,7 @@ export const Config = z.union([
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
     failOnStartupError: z.boolean().default(false),
     maxInstructionBytes: z.number().step(1).min(1).default(DEFAULT_MAX_INSTRUCTION_BYTES),
+    maxPresentationMetaBytes: z.number().step(1).min(1).default(DEFAULT_MAX_PRESENTATION_META_BYTES),
     reconnect: Reconnect,
   }),
 ]) as z<ConfigInput, Config>

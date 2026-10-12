@@ -23,6 +23,7 @@ import type { ToolDefinition, ToolExecution, ToolExecutionResult } from '@deepse
 import { assertSupportedJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { JsonSchemaNode } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+import { isJsonValue } from '@deepseek-ai/dsh-util-values'
 
 /** Resolved options relevant to tool bridging. */
 export interface ToolBridgeOptions {
@@ -30,6 +31,8 @@ export interface ToolBridgeOptions {
   registrationFailure: 'contain' | 'throw'
   serverName: string
   toolCallTimeoutMs: number
+  /** Maximum UTF-8 bytes of one serialized `dsh/presentation` payload. */
+  maxPresentationMetaBytes: number
 }
 
 /** State for one sync generation: the current set of disposers keyed by public name. */
@@ -52,6 +55,13 @@ const INVALID_NAME_CHARS = /[^A-Za-z0-9_-]/g
 
 /** Hex chars of the SHA-256 identity hash appended on lossy normalization. */
 const HASH_LENGTH = 12
+
+/**
+ * `CallToolResult._meta` key under which a server marks one JSON object as
+ * presentation data for host card rendering. Wire-protocol constant, not
+ * configuration.
+ */
+const PRESENTATION_META_KEY = 'dsh/presentation'
 
 /** Raster formats supported by the durable attachment vocabulary. */
 const IMAGE_MEDIA_TYPES: readonly ImageMediaType[] = [
@@ -139,6 +149,7 @@ export async function syncTools(
         { name: tool.name, arguments: args },
         { signal: execution.signal, timeout: opts.toolCallTimeoutMs, toolDefinition: tool },
       ),
+      maxPresentationMetaBytes: opts.maxPresentationMetaBytes,
     }))
   }
 
@@ -213,6 +224,11 @@ export interface McpToolDefinitionOptions {
    * @returns the external result object, validated before content projection.
    */
   call(args: Record<string, unknown>, execution: ToolExecution): Promise<unknown>
+  /**
+   * Maximum UTF-8 bytes of one serialized `dsh/presentation` payload projected
+   * as result metadata. Absent means the definition never projects one.
+   */
+  maxPresentationMetaBytes?: number
 }
 
 /**
@@ -228,12 +244,13 @@ export function createMcpToolDefinition(
 ): ToolDefinition {
   const { name, rawName, description, inputSchema } = options
   const projections = new WeakMap<ToolExecution, PreparedProjection>()
+  const presentations = new WeakMap<ToolExecution, JsonValue>()
   return {
     name,
     description,
     parameters: inputSchema,
-    output: createOutput(rawName, supportedOutputSchema(options.outputSchema)),
-    execute: createExecutor(ctx, options, projections),
+    output: createOutput(rawName, supportedOutputSchema(options.outputSchema), presentations),
+    execute: createExecutor(ctx, options, projections, presentations),
     projectContent(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>) {
       const projection = projections.get(exec)
       if (projection === undefined) return undefined
@@ -246,8 +263,15 @@ export function createMcpToolDefinition(
   }
 }
 
-/** Build the canonical result schema and existing Native text projection. */
-function createOutput(rawName: string, structuredSchema: JsonSchemaNode | undefined): ToolDefinition['output'] {
+/**
+ * Build the canonical result schema, the Native text projection, and the
+ * presentation projection that replays the payload staged for one execution.
+ */
+function createOutput(
+  rawName: string,
+  structuredSchema: JsonSchemaNode | undefined,
+  presentations: WeakMap<ToolExecution, JsonValue>,
+): ToolDefinition['output'] {
   return {
     schema: {
       type: 'object',
@@ -262,6 +286,13 @@ function createOutput(rawName: string, structuredSchema: JsonSchemaNode | undefi
       const result = value as McpResult
       return [{ type: 'text', text: extractText(result.content, rawName) }]
     },
+    // The payload stays outside the canonical value so PTC declarations and
+    // values never carry it; nothing staged attaches no metadata.
+    presentationMeta(_args: unknown, _value: JsonValue, exec: Readonly<ToolExecution>) {
+      const presentation = presentations.get(exec)
+      presentations.delete(exec)
+      return presentation
+    },
   }
 }
 
@@ -273,8 +304,9 @@ function createExecutor(
   ctx: Context,
   options: McpToolDefinitionOptions,
   projections: WeakMap<ToolExecution, PreparedProjection>,
+  presentations: WeakMap<ToolExecution, JsonValue>,
 ): ToolDefinition['execute'] {
-  const { rawName, taskRequired } = options
+  const { rawName, taskRequired, maxPresentationMetaBytes } = options
   return async (args: unknown, exec: ToolExecution) => {
     if (taskRequired) {
       throw new Error(`Tool "${rawName}" requires task-based execution, which this bridge does not support`)
@@ -298,6 +330,12 @@ function createExecutor(
       throw new Error(text)
     }
 
+    if (maxPresentationMetaBytes !== undefined) {
+      const presentation = readPresentationMeta(result._meta, rawName, maxPresentationMetaBytes, (message) => {
+        ctx.logger.warn(message)
+      })
+      if (presentation !== undefined) presentations.set(exec, presentation)
+    }
     const value: McpResult = {
       content,
       ...result.structuredContent !== undefined
@@ -318,8 +356,37 @@ function containsImage(content: JsonValue[]): boolean {
   return content.some(value => isRecord(value) && value.type === 'image')
 }
 
-/** Narrow one JSON value to a string-keyed object. */
-function isRecord(value: JsonValue): value is { [key: string]: JsonValue } {
+/**
+ * Read the presentation payload a server marked in `CallToolResult._meta`.
+ * Only a JSON object under {@link PRESENTATION_META_KEY} within the byte cap
+ * projects; a missing key, a non-object value, a non-JSON value, or an
+ * oversize payload keeps the result presentation-free. The oversize
+ * diagnostic names the tool and sizes, never payload content.
+ * @param meta - the validated result's `_meta` field.
+ * @param rawName - upstream tool name for the oversize diagnostic.
+ * @param maxBytes - cap on the payload's serialized UTF-8 bytes.
+ * @param warn - diagnostic sink for the oversize case.
+ * @returns the marked JSON object, or `undefined` when nothing projects.
+ */
+function readPresentationMeta(
+  meta: unknown,
+  rawName: string,
+  maxBytes: number,
+  warn: (message: string) => void,
+): JsonValue | undefined {
+  if (!isRecord(meta)) return undefined
+  const candidate = meta[PRESENTATION_META_KEY]
+  if (!isRecord(candidate) || !isJsonValue(candidate)) return undefined
+  const bytes = Buffer.byteLength(JSON.stringify(candidate), 'utf8')
+  if (bytes > maxBytes) {
+    warn(`tool "${rawName}" marked a ${bytes}-byte dsh/presentation payload over the ${maxBytes}-byte cap; presentation metadata omitted`)
+    return undefined
+  }
+  return candidate
+}
+
+/** Narrow one wire or JSON value to a string-keyed object (not an array or null). */
+function isRecord(value: unknown): value is { [key: string]: JsonValue } {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 

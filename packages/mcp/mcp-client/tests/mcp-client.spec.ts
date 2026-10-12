@@ -138,6 +138,7 @@ const defaultOpts: ToolBridgeOptions = {
   registrationFailure: 'contain',
   serverName: 'srv',
   toolCallTimeoutMs: 60_000,
+  maxPresentationMetaBytes: 65_536,
 }
 
 // ---- Tests ----

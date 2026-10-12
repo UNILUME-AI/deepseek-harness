@@ -2179,7 +2179,7 @@ export interface LspLocalServerConfig {
 ## `@deepseek-ai/dsh-mcp-client`
 
 - `inject`: `tools`
-- `source`: [`packages/mcp/mcp-client/src/index.ts:104`](../packages/mcp/mcp-client/src/index.ts)
+- `source`: [`packages/mcp/mcp-client/src/index.ts:108`](../packages/mcp/mcp-client/src/index.ts)
 
 ```ts config-catalog
 /** Configuration for one stdio or Streamable HTTP MCP server. */
@@ -2209,6 +2209,8 @@ export interface StdioConfig {
   failOnStartupError: boolean
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
   maxInstructionBytes?: number
+  /** Maximum UTF-8 bytes of one serialized `dsh/presentation` result payload (default 65536). */
+  maxPresentationMetaBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
 }
@@ -2233,6 +2235,8 @@ export interface StreamableHttpConfig {
   failOnStartupError: boolean
   /** Maximum UTF-8 bytes of attributed server instructions (default 32768). */
   maxInstructionBytes?: number
+  /** Maximum UTF-8 bytes of one serialized `dsh/presentation` result payload (default 65536). */
+  maxPresentationMetaBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
 }
@@ -4210,7 +4214,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tools`
 
 - `inject`: `systemPrompt`
-- `source`: [`packages/core/tools/src/index.ts:675`](../packages/core/tools/src/index.ts)
+- `source`: [`packages/core/tools/src/index.ts:679`](../packages/core/tools/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: how the registered tools are presented to the model. */
