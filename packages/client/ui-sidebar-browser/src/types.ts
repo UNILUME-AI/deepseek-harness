@@ -50,6 +50,10 @@ export interface DesktopBrowserBridge {
   acquire(workspace: string): Promise<DesktopBrowserReservation>
   /** @param lease - the caller's reservation. @returns after its guest has been destroyed. */
   release(lease: DesktopBrowserLeaseId): Promise<void>
+  /** @param lease - the guest the renderer just made the active browser tab. */
+  reportActive(lease: DesktopBrowserLeaseId): void
+  /** @param lease - a previously reported guest whose tab is no longer visible. */
+  reportInactive(lease: DesktopBrowserLeaseId): void
   /** @param lease - originating guest. @param listener - approved URL consumer. @returns unsubscribe callback. */
   onOpenRequested(lease: DesktopBrowserLeaseId, listener: (url: string) => void): () => void
 }
@@ -74,4 +78,8 @@ export interface DesktopCredentialsBridge {
 export interface BrowserCredentials extends Omit<DesktopCredentialsBridge, 'fill'> {
   /** @param id - entry to fill. @param fields - user selection. @returns names filled or not found. */
   fill(id: CredentialId, fields: readonly FillFieldType[]): Promise<CredentialFillResult>
+  /** Mark this page's guest as the main window's active browser tab; no-ops until its lease exists. */
+  reportActive(): void
+  /** Withdraw the active report while this page's tab is hidden; no-ops until its lease exists. */
+  reportInactive(): void
 }

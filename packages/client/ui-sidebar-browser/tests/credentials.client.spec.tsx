@@ -15,6 +15,8 @@ function setup(language: 'zh' | 'en' = 'zh', url: string | undefined = 'https://
     add: vi.fn<BrowserCredentials['add']>(async () => id),
     remove: vi.fn<BrowserCredentials['remove']>(async () => {}),
     fill: vi.fn<BrowserCredentials['fill']>(async (_id, fields) => ({ filled: [...fields], notFound: [] })),
+    reportActive: vi.fn<BrowserCredentials['reportActive']>(() => {}),
+    reportInactive: vi.fn<BrowserCredentials['reportInactive']>(() => {}),
   }
   const t: PropsLocale<'sidebarBrowser'>['t'] = (key, params) => {
     const dictionary: Readonly<Record<string, string>> = messages

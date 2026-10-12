@@ -71,6 +71,13 @@ export function BrowserBody(props: BrowserBodyProps): ReactNode {
   }, [mount, tab.id, tab.signal, tab.actions, viewportId, props.actions])
 
   const credentials = props.getCredentials?.(tab.id)
+  const visible = tab.visible
+  useEffect(() => {
+    // Main tracks the most recently visible browser guest for the credential
+    // tools; a hidden or collapsed tab must withdraw its activation.
+    if (visible) credentials?.reportActive()
+    else credentials?.reportInactive()
+  }, [credentials, visible])
   const unknown = frame.address === 'unknown'
   const externalUrl = unknown ? undefined : target?.url
   const sandboxed = frame.sandboxEnabled

@@ -1,0 +1,70 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/desktop/credential-tools/README.md
+/:
+  en: 016d87e890a007b8
+  zh: bd57fc5bd6d43b4d
+/deepseek-ai-dsh-desktop-credential-tools:
+  en: 307e152acfb6db7d
+  zh: 9a844e80d27b0951
+/deepseek-ai-dsh-desktop-credential-tools/summary:
+  en: d7d7e69bd31fefda
+  zh: 7b84bd47e35f498b
+/deepseek-ai-dsh-desktop-credential-tools/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-desktop-credential-tools/use-this-package:
+  en: 5e2cc16ed527e37f
+  zh: cd9a9d8c0b44211a
+/deepseek-ai-dsh-desktop-credential-tools/use-this-package/when-to-choose-it:
+  en: 47c4b01a35e44df7
+  zh: c187585a5da2a3c0
+/deepseek-ai-dsh-desktop-credential-tools/use-this-package/minimal-configuration:
+  en: be98037012e20e6e
+  zh: 38663c92036a097f
+/deepseek-ai-dsh-desktop-credential-tools/understand-the-implementation:
+  en: 2599cdcf84a92f62
+  zh: 2362c2fbbbc698f0
+/deepseek-ai-dsh-desktop-credential-tools/understand-the-implementation/source-map:
+  en: 213ae22884d6eb5a
+  zh: 55f525ab5eacecf7
+/deepseek-ai-dsh-desktop-credential-tools/understand-the-implementation/export-shape:
+  en: 171ea8ab135b2454
+  zh: cdac2966628bda56
+/deepseek-ai-dsh-desktop-credential-tools/further-exploration:
+  en: 24d28a6942a16e41
+  zh: 529475a8a5a8cb64
+/deepseek-ai-dsh-desktop-credential-tools/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-desktop-credential-tools/model-experience/tool-definitions:
+  en: 5cf98046cb6eda53
+  zh: d18677364e8fe82c
+/deepseek-ai-dsh-desktop-credential-tools/model-experience/tool-definitions/what-the-model-sees:
+  en: 98f7f0325a20b4db
+  zh: d128be07cf93dbf4
+/deepseek-ai-dsh-desktop-credential-tools/model-experience/tool-definitions/token-effect:
+  en: d142c0dc5f9c19f5
+  zh: d905838864ee9c7b
+/deepseek-ai-dsh-desktop-credential-tools/model-experience/tool-definitions/kv-cache-effect:
+  en: 941c1c9e7488e6ac
+  zh: f7ef7d8e895a7475
+/deepseek-ai-dsh-desktop-credential-tools/model-experience/tool-call-results:
+  en: 9f92ff587dec916a
+  zh: 9937e2a13f34f183
+/deepseek-ai-dsh-desktop-credential-tools/model-experience/tool-call-results/what-the-model-sees:
+  en: a1efb5469e91bce9
+  zh: 10983f89875b1c9f
+/deepseek-ai-dsh-desktop-credential-tools/model-experience/tool-call-results/token-effect:
+  en: cc847b962a0393d8
+  zh: b6a582bafac3b22a
+/deepseek-ai-dsh-desktop-credential-tools/model-experience/tool-call-results/kv-cache-effect:
+  en: f5d5f97a153f7c70
+  zh: dca553ec1634c0fe
+/deepseek-ai-dsh-desktop-credential-tools/known-limitations-and-deferred-work:
+  en: 5975ec8095e1f02d
+  zh: 3a85d0e6f190a0ea
+/deepseek-ai-dsh-desktop-credential-tools/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 3bb0c20c93f16f98

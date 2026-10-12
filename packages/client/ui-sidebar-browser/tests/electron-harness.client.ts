@@ -14,6 +14,8 @@ export function electronFixture(initial?: BrowserTabState, credentials?: Desktop
   const bridge = {
     acquire: vi.fn(async (_workspace: string) => reservation),
     release: vi.fn(async (_lease: DesktopBrowserLeaseId) => {}),
+    reportActive: vi.fn((_lease: DesktopBrowserLeaseId) => {}),
+    reportInactive: vi.fn((_lease: DesktopBrowserLeaseId) => {}),
     onOpenRequested: vi.fn((_lease: DesktopBrowserLeaseId, listener: (url: string) => void) => {
       opens.add(listener)
       return () => { opens.delete(listener) }

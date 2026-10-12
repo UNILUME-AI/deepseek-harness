@@ -1,14 +1,35 @@
 /** Main-process approval and isolated-world filling; secrets never enter results or diagnostic messages. */
 import { dialog, type BrowserWindow, type WebContents, systemPreferences } from 'electron'
+import type { CredentialId, FillFieldType, CredentialFillResult } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
+import type { CredentialRequestError } from '@deepseek-ai/dsh-desktop-credential-tools/protocol'
 import type { CredentialVault } from './credential-vault.ts'
 import { generateTotp, parseTotpUri } from './totp.ts'
-import type { FillFieldType, CredentialFillResult } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
 import { credentialOrigin } from './credential-validation.ts'
 
 /** Fields selected by a user for an already owned guest. */
 export interface FillRequest {
   readonly fields: readonly FillFieldType[]
-  readonly credentialId: string
+  readonly credentialId: CredentialId
+}
+
+/**
+ * Failure category of one fill, safe to forward across the Host IPC without any value. The
+ * protocol's channel and window categories are decided before filling starts; `no-active-page`
+ * also ends a fill whose guest stops being visible. Every other wire category a future protocol
+ * revision adds is fillable here by construction.
+ */
+export type CredentialFillErrorKind = Exclude<CredentialRequestError, 'unavailable' | 'no-window'>
+
+/** A fill failure whose category is exact; `message` stays main-process-only. */
+export class CredentialFillError extends Error {
+  /**
+   * @param kind - category exposed to the Host and the model.
+   * @param message - full local diagnostic.
+   */
+  constructor(readonly kind: CredentialFillErrorKind, message: string) {
+    super(message)
+    this.name = 'CredentialFillError'
+  }
 }
 
 // 0 is the page world; 999 is reserved by Electron for context isolation.
@@ -60,17 +81,25 @@ export class CredentialFiller {
 
   /**
    * @param guest - lease-owned guest. @param request - validated entry and fields. @param mainWindow - approval parent.
-   * @returns field names only; rejects origin changes, denial and biometric failures.
+   * @param visible - when given, awaited after approval and before every field injection; `false` stops the fill
+   *   with `no-active-page` before any further injection.
+   * @returns field names only; rejects origin changes, hidden guests, denial and biometric failures.
    */
   async fill(guest: Pick<WebContents, 'getURL' | 'executeJavaScriptInIsolatedWorld'>,
-    request: FillRequest, mainWindow: BrowserWindow): Promise<CredentialFillResult> {
+    request: FillRequest, mainWindow: BrowserWindow, visible?: () => Promise<boolean>): Promise<CredentialFillResult> {
     await this.vault.load()
     const entry = this.vault.list().find(item => item.id === request.credentialId)
-    if (entry === undefined) throw new Error('Credential entry not found')
+    if (entry === undefined) throw new CredentialFillError('not-found', 'Credential entry not found')
     const checkOrigin = (): void => {
       if (credentialOrigin(guest.getURL()) !== entry.origin) {
-        throw new Error('Origin mismatch: 页面站点与凭据站点不一致，已停止代填')
+        throw new CredentialFillError('origin-mismatch', 'Origin mismatch: 页面站点与凭据站点不一致，已停止代填')
       }
+    }
+    const recheck = async (): Promise<void> => {
+      if (visible !== undefined && !await visible()) {
+        throw new CredentialFillError('no-active-page', 'Guest is no longer visible; fill stopped')
+      }
+      checkOrigin()
     }
     checkOrigin()
     const approval = await dialog.showMessageBox(mainWindow, {
@@ -79,15 +108,15 @@ export class CredentialFiller {
         + ` (${request.fields.join(', ')})\n不会自动提交登录表单`,
       buttons: ['批准', '取消'], defaultId: 1, cancelId: 1,
     })
-    if (approval.response !== 0) throw new Error('Fill request was not approved')
+    if (approval.response !== 0) throw new CredentialFillError('denied', 'Fill request was not approved')
     if (process.platform === 'darwin' && systemPreferences.canPromptTouchID()) {
       try { await systemPreferences.promptTouchID(`批准向 ${entry.origin} 填入凭据`) } catch (_error) {
-        throw new Error('触控 ID 验证失败，已停止代填')
+        throw new CredentialFillError('denied', '触控 ID 验证失败，已停止代填')
       }
     }
-    checkOrigin()
+    await recheck()
     const credential = await this.vault.getSecrets(entry.id)
-    if (credential === null) throw new Error('Credential entry not found')
+    if (credential === null) throw new CredentialFillError('not-found', 'Credential entry not found')
     const filled: FillFieldType[] = []
     const notFound: FillFieldType[] = []
     for (const field of request.fields) {
@@ -103,8 +132,9 @@ export class CredentialFiller {
         }
         default: assertNever(field)
       }
-      // Recheck after every await, including decryption and a previous field's DOM events.
-      checkOrigin()
+      // Recheck after every await, including decryption and a previous field's DOM events;
+      // no await separates the origin check from the injection.
+      await recheck()
       let result: unknown
       try {
         result = await guest.executeJavaScriptInIsolatedWorld(CREDENTIAL_WORLD, [{
@@ -112,7 +142,7 @@ export class CredentialFiller {
         }])
       } catch (_error) {
         // Guest exceptions may quote the source containing secrets. Never log or forward them.
-        throw new Error('凭据填写失败，请重新检查页面并重试')
+        throw new CredentialFillError('error', '凭据填写失败，请重新检查页面并重试')
       }
       if (result === true) filled.push(field)
       else notFound.push(field)

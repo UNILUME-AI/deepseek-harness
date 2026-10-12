@@ -197,6 +197,8 @@
       // wildcard form.
       "@deepseek-ai/dsh-host-directory-picker": ["./packages/host/directory-picker/src"],
       "@deepseek-ai/dsh-host-directory-picker/*": ["./packages/host/directory-picker/src/*"],
+      "@deepseek-ai/dsh-desktop-credential-tools": ["./packages/desktop/credential-tools/src/index.ts"],
+      "@deepseek-ai/dsh-desktop-credential-tools/protocol": ["./packages/desktop/credential-tools/src/protocol.ts"],
       "@deepseek-ai/dsh-host-directory-picker-browse": ["./packages/host/directory-picker-browse/src"],
       "@deepseek-ai/dsh-host-directory-picker-browse/*": ["./packages/host/directory-picker-browse/src/*"],
       "@deepseek-ai/dsh-host-directory-picker-native": ["./packages/host/directory-picker-native/src"],

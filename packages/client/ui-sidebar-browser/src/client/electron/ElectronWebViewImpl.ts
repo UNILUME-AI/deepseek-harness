@@ -20,6 +20,7 @@ export class ElectronWebViewImpl implements BrowserFrame {
   private guestLifetime: AbortController | undefined
   private element: WebviewElement | undefined
   private lease: DesktopBrowserLeaseId | undefined
+  private activationPending = false
   private workspaceKey: string | undefined
   private initializing: Promise<void> | undefined
   private ready = false
@@ -44,7 +45,12 @@ export class ElectronWebViewImpl implements BrowserFrame {
     this.store = createSnapshotStore(emptyBrowserFrame())
   }
 
-  /** @param bridge - desktop credential IPC. @returns callbacks that resolve the current lease at the user gesture. */
+  /**
+   * Build the tab-scoped credential operations; fill and activation resolve the
+   * current lease at the user gesture, never earlier.
+   * @param bridge - desktop credential IPC.
+   * @returns callbacks bound to this tab's live guest.
+   */
   credentials(bridge: DesktopCredentialsBridge): BrowserCredentials {
     return {
       list: origin => bridge.list(origin),
@@ -53,6 +59,18 @@ export class ElectronWebViewImpl implements BrowserFrame {
       fill: async (credentialId, fields) => {
         if (!this.ready || this.lease === undefined || this.lifetime.signal.aborted) throw new Error('Guest not available')
         return bridge.fill({ lease: this.lease, credentialId, fields })
+      },
+      reportActive: () => {
+        if (this.lifetime.signal.aborted) return
+        this.activationPending = true
+        if (this.lease !== undefined) this.bridge.reportActive(this.lease)
+      },
+      reportInactive: () => {
+        // A hidden tab must not stay the shell's fill target, and a pending
+        // activation would wrongly fire once the lease appears.
+        if (this.lifetime.signal.aborted) return
+        this.activationPending = false
+        if (this.lease !== undefined) this.bridge.reportInactive(this.lease)
       },
     }
   }
@@ -161,6 +179,8 @@ export class ElectronWebViewImpl implements BrowserFrame {
     // oxlint-disable-next-line typescript/no-unnecessary-condition -- The signal can abort while acquire is pending.
     if (attachmentSignal.aborted) { await this.release(reservation.lease); return }
     this.lease = reservation.lease
+    // An activation reported before acquisition resolves against the fresh lease now.
+    if (this.activationPending) this.bridge.reportActive(reservation.lease)
     this.guestLifetime = new AbortController()
     const signal = AbortSignal.any([attachmentSignal, this.guestLifetime.signal])
     const element = this.presentation.createElement(reservation)

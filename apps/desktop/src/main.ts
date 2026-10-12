@@ -19,6 +19,7 @@ import {
   protocol,
   session,
   shell,
+  type IpcMainEvent,
   type IpcMainInvokeEvent,
   type MenuItemConstructorOptions,
 } from 'electron'
@@ -54,6 +55,7 @@ import { DesktopPolicyTestAuth } from './policy-test-auth.ts'
 import { DesktopUpdateDialog, type UpdateDialogOptions } from './update-dialog.ts'
 import { readDesktopRuntime } from './runtime-tree.ts'
 import { DesktopBrowserGuests } from './browser-guests.ts'
+import { RendererVisibility } from './browser-visibility.ts'
 import { installDesktopShortcuts } from './keyboard.ts'
 import { DesktopUpdateOverlays } from './update-overlay.ts'
 import { DesktopQuitConfirmation } from './quit-confirmation.ts'
@@ -61,6 +63,7 @@ import { DesktopTray } from './tray.ts'
 import { DesktopBackgroundNotice } from './background-notice.ts'
 import { CredentialVault } from './credential-vault.ts'
 import { registerCredentialHandlers } from './credential-ipc.ts'
+import { createCredentialRequestHandler } from './credential-host.ts'
 
 let focusPrimaryWindow = (): void => {}
 let stopForRecovery = async (): Promise<void> => {}
@@ -402,6 +405,8 @@ async function main(): Promise<void> {
   let hostUrl: string | undefined
   let hostCookie: string | undefined
   const browserGuests = new DesktopBrowserGuests(() => hostUrl)
+  // The renderer answers pre-fill visibility queries from its own activation mirror.
+  const rendererVisibility = new RendererVisibility(ipcMain)
   const vault = new CredentialVault(app.getPath('userData'))
   let injections: readonly unknown[] = []
   let welcomeBackend: DesktopWelcomeBackend | undefined
@@ -425,6 +430,12 @@ async function main(): Promise<void> {
       throw new Error('dsh desktop: rejected IPC from an unowned renderer')
     }
   }
+  /** Whether a fire-and-forget event comes from the primary window's main frame; never throws. */
+  const ownsPrimaryFrame = (event: IpcMainEvent): boolean => {
+    try { assertDesktopSender(event, ['app']) } catch (_error) { return false }
+    return mainWindow !== undefined && !mainWindow.isDestroyed() && event.sender === mainWindow.webContents
+      && event.senderFrame !== null && event.senderFrame === mainWindow.webContents.mainFrame
+  }
   let navigation: { window: BrowserWindow; url: string; promise: Promise<void> } | undefined
   const navigateMain = (url: string): Promise<void> => {
     const window = mainWindow
@@ -447,7 +458,13 @@ async function main(): Promise<void> {
     const host = new DesktopHostProcess(resources.node, resources.dsh, activeProject,
       hostInspectPort, { ...hostEnvironment, DSH_CLIENT_VERSION: desktopClientVersion() }, onFailure,
       primaryRuntime,
-      resources, (next) => { platformView.setSession(next) })
+      resources, (next) => { platformView.setSession(next) },
+      createCredentialRequestHandler({
+        primary: () => mainWindow,
+        guests: browserGuests,
+        confirmVisible: (owner, lease) => rendererVisibility.confirm(owner, lease),
+        vault,
+      }))
     return {
       start: async () => {
         const ready = await host.start()
@@ -683,7 +700,7 @@ async function main(): Promise<void> {
   installMicrophonePermissions(session.defaultSession, () => mainWindow?.webContents)
   const shortcuts = installDesktopShortcuts(() => mainWindow, app.getPath('userData'),
     process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux', () => { refreshApplicationMenu() }, window => updateOverlays.input(window))
-  app.on('will-quit', () => { shortcuts.dispose() })
+  app.on('will-quit', () => { shortcuts.dispose(); rendererVisibility.dispose() })
 
   ipcMain.handle(DESKTOP_IPC.boot, async (event) => {
     assertDesktopSender(event, ['app'])
@@ -708,6 +725,16 @@ async function main(): Promise<void> {
   ipcMain.handle(DESKTOP_IPC.browserRelease, (event, lease: unknown) => {
     assertProductSender(event)
     return browserGuests.release(event.sender, lease)
+  })
+  ipcMain.on(DESKTOP_IPC.browserActivated, (event, lease: unknown) => {
+    // Fire-and-forget activation report; an unowned or stale sender is ignored, never fatal.
+    if (!ownsPrimaryFrame(event)) return
+    browserGuests.markActive(event.sender, lease)
+  })
+  ipcMain.on(DESKTOP_IPC.browserDeactivated, (event, lease: unknown) => {
+    // The renderer withdrew a tab's visibility; it must stop being the fill target.
+    if (!ownsPrimaryFrame(event)) return
+    browserGuests.markInactive(event.sender, lease)
   })
 
   registerCredentialHandlers(ipcMain, () => mainWindow, browserGuests, vault)

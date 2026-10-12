@@ -17,6 +17,7 @@ const root = resolve(import.meta.dirname, '..')
 export const GROUPS_WITHOUT_SUBSYSTEM_PAGE: Readonly<Record<string, string>> = {
   acp: 'Protocol transport entry point; the server package README owns its interoperability contract.',
   bundle: 'Composition patch carriers whose mounted packages own all runtime contracts.',
+  desktop: 'Electron-shell glue whose durable contracts live in apps/desktop and the package README; no Harness subsystem page is owned here.',
   hooks: 'External hook-protocol bridges over existing interception points, not a new Harness service.',
   sdk: 'Out-of-process protocol and client packages whose package READMEs own the SDK contracts.',
   util: 'Low-level primitives whose business semantics remain with their consuming subsystems.',

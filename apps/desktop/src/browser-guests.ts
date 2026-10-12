@@ -16,6 +16,8 @@ interface GuestLease {
 export class DesktopBrowserGuests {
   private readonly partitions = new Map<string, string>()
   private readonly leases = new Map<DesktopBrowserLeaseId, GuestLease>()
+  /** Per-owner most recently activated browser tab, as reported by the renderer and guest focus. */
+  private readonly active = new Map<WebContents, DesktopBrowserLeaseId>()
 
   /** @param hostUrl - current authenticated DSH Host, which guests cannot request. */
   constructor(private readonly hostUrl: () => string | undefined) {}
@@ -54,6 +56,7 @@ export class DesktopBrowserGuests {
     if (lease.owner !== owner) throw new Error('desktop browser: guest belongs to another window')
     lease.releaseInput?.()
     this.leases.delete(key)
+    if (this.active.get(owner) === key) this.active.delete(owner)
     const guest = lease.guest
     if (guest !== undefined && !guest.isDestroyed()) {
       const destroyed = new Promise<void>((resolve) => { guest.once('destroyed', resolve) })
@@ -74,6 +77,52 @@ export class DesktopBrowserGuests {
     const lease = this.leases.get(key)
     if (lease === undefined || lease.owner !== owner || lease.guest?.isDestroyed()) return undefined
     return lease.guest
+  }
+
+  /**
+   * Record the renderer-reported activation of one browser tab.
+   * @param owner - authenticated IPC sender.
+   * @param id - lease the renderer marked active.
+   */
+  markActive(owner: WebContents, id: unknown): void {
+    if (typeof id !== 'string') return
+    const key = id as DesktopBrowserLeaseId
+    const lease = this.leases.get(key)
+    if (lease === undefined || lease.owner !== owner) return
+    this.active.set(owner, key)
+  }
+
+  /**
+   * Clear the renderer-reported activation of one browser tab when its tab became invisible.
+   * @param owner - authenticated IPC sender.
+   * @param id - lease the renderer marked inactive.
+   */
+  markInactive(owner: WebContents, id: unknown): void {
+    if (typeof id !== 'string') return
+    const key = id as DesktopBrowserLeaseId
+    const lease = this.leases.get(key)
+    if (lease !== undefined && lease.owner !== owner) return
+    if (this.active.get(owner) === key) this.active.delete(owner)
+  }
+
+  /**
+   * Resolve the owner's most recently activated browser tab.
+   * @param owner - authenticated primary application WebContents.
+   * @returns the live guest, or undefined when no tab was activated or it has since closed.
+   */
+  getActiveGuest(owner: WebContents): WebContents | undefined {
+    const id = this.active.get(owner)
+    if (id === undefined) return undefined
+    return this.getGuest(owner, id)
+  }
+
+  /**
+   * Resolve the lease of the owner's most recently activated browser tab.
+   * @param owner - authenticated primary application WebContents.
+   * @returns the tracked lease, or undefined when no tab is active.
+   */
+  getActiveLease(owner: WebContents): DesktopBrowserLeaseId | undefined {
+    return this.active.get(owner)
   }
 
   /**
@@ -120,7 +169,15 @@ export class DesktopBrowserGuests {
         lease.guest = guest
         attachedLease = id
         lease.releaseInput = attachInput(guest, id)
-        guest.once('destroyed', () => { lease.releaseInput?.(); this.leases.delete(id) })
+        // Split panes leave several guests visible; a focused guest is the newer active page.
+        guest.on('focus', () => {
+          if (this.leases.get(id) === lease) this.active.set(owner, id)
+        })
+        guest.once('destroyed', () => {
+          lease.releaseInput?.()
+          this.leases.delete(id)
+          if (this.active.get(owner) === id) this.active.delete(owner)
+        })
       })
       guest.setWindowOpenHandler(({ url, postBody }) => {
         const lease = attachedLease === undefined ? undefined : this.leases.get(attachedLease)

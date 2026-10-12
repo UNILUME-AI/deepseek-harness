@@ -281,6 +281,13 @@
       name: '@deepseek-ai/dsh-client-ui-sidebar-browser'
       disabled: !!js "ctx.get('profileContext')?.name !== 'desktop'"
 
+    # Desktop-only credential tools: the plugin runs in the desktop Host and
+    # reaches the shell's credential vault over the Host IPC channel; the model
+    # references entries by id and never sees a secret.
+    - id: desktop-credential-tools
+      name: '@deepseek-ai/dsh-desktop-credential-tools'
+      disabled: !!js "ctx.get('profileContext')?.name !== 'desktop'"
+
     - id: ui-sidebar-terminal
       name: '@deepseek-ai/dsh-client-ui-sidebar-terminal'
     # The right Sidebar's workspace file tree tab type.
