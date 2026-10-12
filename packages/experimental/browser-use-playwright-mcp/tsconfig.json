@@ -13,6 +13,15 @@
     },
     {
       "path": "../browser-use-runtime"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../credentials/credentials"
+    },
+    {
+      "path": "../../util/launch-environment"
     }
   ]
 }

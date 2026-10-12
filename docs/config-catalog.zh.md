@@ -890,12 +890,27 @@ export type Config = BrowserMcpConfig
 ## `@deepseek-ai/dsh-experimental-browser-use-playwright-mcp`
 
 - `inject`: `browserUse` · `agents` · `tools` · `systemPrompt`
-- `refs`: `BrowserMcpConfig` (`@deepseek-ai/dsh-experimental-browser-use-runtime/mcp`)
-- `source`: [`packages/experimental/browser-use-playwright-mcp/src/index.ts:15`](../packages/experimental/browser-use-playwright-mcp/src/index.ts)
+- `refs`: `BrowserMcpConfig` (`@deepseek-ai/dsh-experimental-browser-use-runtime/mcp`) · [`CredentialRef`](subsystems/credentials.zh.md)
+- `source`: [`packages/experimental/browser-use-playwright-mcp/src/index.ts:31`](../packages/experimental/browser-use-playwright-mcp/src/index.ts)
 
 ```ts config-catalog
-/** Fixed Chromium launch or existing-browser attachment settings. */
-export type Config = BrowserMcpConfig
+/** Playwright browser selection and optional coordinate-tool capability. */
+export type Config = (BrowserMcpConfig | ExtensionConfig) & {
+  /** Extra upstream tool groups; `vision` adds coordinate-based mouse tools. Defaults to none. */
+  capabilities?: 'vision'[]
+}
+
+/** Extension connection to an externally owned Chrome or Edge browser. */
+export interface ExtensionConfig {
+  /** Exclusively connect one live Session through Playwright Extension. */
+  mode: 'extension'
+  /** Installed browser channel containing the extension; defaults to Chrome. */
+  browser: 'chrome' | 'msedge'
+  /** Credential reference resolved for each Session startup; omission requires manual approval. */
+  extensionTokenEnv?: CredentialRef
+  /** Per-call timeout override in milliseconds; omission uses the MCP client default. */
+  toolCallTimeoutMs?: number
+}
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-browser-use-playwright-mcp -->
 

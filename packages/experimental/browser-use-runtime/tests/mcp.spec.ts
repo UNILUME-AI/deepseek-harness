@@ -61,7 +61,13 @@ class PresentationRuntime extends PtcRuntime {
   run(): Promise<never> { return Promise.reject(new Error('Unexpected PTC execution in a presentation test')) }
 }
 
-async function load(exclusive = false, mode?: string, toolCallTimeoutMs?: number, toolOrder?: string[]) {
+async function load(
+  exclusive = false,
+  mode?: string,
+  toolCallTimeoutMs?: number,
+  toolOrder?: string[],
+  env?: () => Promise<Record<string, string>>,
+) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-browser-mcp-'))
   roots.push(root)
   const model = new FixtureModel()
@@ -70,7 +76,7 @@ async function load(exclusive = false, mode?: string, toolCallTimeoutMs?: number
     ['sessions', Sessions], ['agents', Agents], ['loop', AgentLoop], ['projections', Projections],
     ['model', { inject: ['llm'], apply(ctx: Context) { ctx.effect(() => ctx.llm.registerAdapter(['fixture'], model)) } }],
     ['browser', { inject: ['browserUse', 'agents', 'tools', 'systemPrompt'], apply(ctx: Context) {
-      mountSessionMcp(ctx, { name: 'browser-fixture', exclusive, command: process.execPath, args: [fixture, root, ...mode === undefined ? [] : [mode]], ...toolCallTimeoutMs === undefined ? {} : { toolCallTimeoutMs, env: {} } })
+      mountSessionMcp(ctx, { name: 'browser-fixture', exclusive, command: process.execPath, args: [fixture, root, ...mode === undefined ? [] : [mode]], ...toolCallTimeoutMs === undefined ? {} : { toolCallTimeoutMs, env: {} }, ...env === undefined ? {} : { env } })
     } }],
   ])
   const configPath = join(root, 'cordis.yml')
@@ -573,4 +579,15 @@ describe('Session MCP Loader composition', () => {
     expect((await execute(ctx, existing.agent)).isError).toBe(true)
     expect((await execute(ctx, future.agent)).isError).toBe(false)
   })
+})
+
+it('resolves startup environment per acquisition and releases an exclusive reservation after resolution fails', async () => {
+  const env = vi.fn<() => Promise<Record<string, string>>>().mockRejectedValueOnce(new Error('fixture credential unavailable')).mockResolvedValue({})
+  const { ctx, root } = await load(true, undefined, undefined, undefined, env)
+  await expect(ctx.agents.create({ sessionId: SessionId('missing-credential') })).rejects.toThrow('fixture credential unavailable')
+  await expect(events(root)).rejects.toMatchObject({ code: 'ENOENT' })
+  const handle = await ctx.agents.create({ sessionId: SessionId('resolved-credential') })
+  expect(ctx.tools.schemas(handle.agent).some(tool => tool.name === TOOL)).toBe(true)
+  expect(env).toHaveBeenCalledTimes(2)
+  await handle.dispose()
 })

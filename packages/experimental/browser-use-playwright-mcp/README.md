@@ -37,15 +37,32 @@ Mount both entries before creating or resuming a Session, in a profile compositi
 
 Use `mode: attach` and set `endpoint` to an HTTP(S) debugging URL or WS(S) browser endpoint to operate an existing browser. The new live Session claims the attachment during initialization and retains it until unloading. If the attachment is busy, that activation continues without this browser and does not retry on later turns. After release, a newly created or resumed activation can acquire it. Direct calls from another Session fail. Cleanup disconnects and leaves the external browser and its pages running.
 
+Use `mode: extension` to operate the user’s running Chrome with its existing login state. Install Playwright Extension in that browser first; `browser` selects `chrome` (default) or `msedge`, never Playwright’s bundled Chromium. Copy the token from the extension interface into the Harness credential service or the named launch environment variable, and put only its reference in `extensionTokenEnv`. The reference resolves anew for each Session startup; a missing or empty credential fails initialization, and credential-provider failures report a generic error without the secret. Without the credential service, resolution uses the Harness launch environment. Omit the reference to select and approve a tab manually on the extension connection page. Extension connections use the same Session exclusivity and cleanup rules as attachments.
+
+```yaml
+- name: '@deepseek-ai/dsh-browser-use'
+- name: '@deepseek-ai/dsh-experimental-browser-use-playwright-mcp'
+  config:
+    mode: extension
+    browser: chrome
+    extensionTokenEnv: BROWSER_EXTENSION_TOKEN
+    capabilities: [vision]
+```
+
+`capabilities` defaults to `[]` in every mode. Only `vision` is accepted; enabling it exposes upstream coordinate tools such as `browser_mouse_click_xy` to the model. Remove it to retain the default accessibility-based tool catalog.
+
 | Field | Default | Meaning |
 |---|---|---|
-| `mode` | required | `launch` or `attach`, fixed for this provider activation |
+| `mode` | required | `launch`, `attach`, or `extension`, fixed for this provider activation |
 | `headless` | `true` | Launch without a visible window |
 | `executablePath` | upstream discovery | Chromium executable for launch |
 | `endpoint` | required for attach | Existing browser debugging endpoint |
+| `browser` | `chrome` | Extension browser channel: `chrome` or `msedge` |
+| `extensionTokenEnv` | manual approval | Extension credential reference; extension mode only |
+| `capabilities` | `[]` | Optional `vision` coordinate tools in any mode |
 | `toolCallTimeoutMs` | MCP client default | Per-call timeout in milliseconds |
 
-The [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-experimental-browser-use-playwright-mcp) lists accepted fields. The profile or preset selects the browser mode. The child process clears inherited `PLAYWRIGHT_MCP_*` options so they cannot replace that configuration.
+The [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-experimental-browser-use-playwright-mcp) lists accepted fields. The profile or preset selects the browser mode. The child process clears inherited `PLAYWRIGHT_MCP_*` options and sets `PLAYWRIGHT_MCP_EXTENSION_TOKEN` only from the configured reference. The token never appears in the MCP server's arguments, but the pinned server adds it to the extension connection page URL that it passes to the browser executable. Extension mode rejects `endpoint`, `headless`, and `executablePath`.
 
 When configuring the system prompt's `toolOrder` for the whole process, leave browser tools under `<unlisted-tools>`. Explicitly listing browser tool names can make prompt assembly fail for Sessions without a browser connection.
 
@@ -81,7 +98,7 @@ Browser state survives turns while its live Session remains attached. Disposal w
 
 #### What the model sees
 
-Tools retain upstream descriptions and JSON schemas under `mcp__playwright-mcp__<tool>` names. Text and screenshots use the normal tool-result pipeline and Session log. Screenshots require an attachment store and an image-capable model route; other routes receive the MCP image diagnostic. The MCP client also exposes resource helpers and attributed server instructions. Browser instructions are shown only after this Session owns a connection; targeted resource requests enforce the same ownership.
+Tools retain upstream descriptions and JSON schemas under `mcp__playwright-mcp__<tool>` names. Text and screenshots use the normal tool-result pipeline and Session log. Enabling `vision` adds coordinate-tool definitions to this catalog. Screenshots require an attachment store and an image-capable model route; other routes receive the MCP image diagnostic. The MCP client also exposes resource helpers and attributed server instructions. Browser instructions are shown only after this Session owns a connection; targeted resource requests enforce the same ownership.
 
 #### Token effect
 
@@ -103,6 +120,8 @@ The integration retains the pinned server's browser and tool restrictions.
 - The shared resource-server inventory can show inherited server names; it does not grant access to another Session's browser.
 - Cancellation does not undo navigation, clicks, or other actions already delivered to the browser.
 - Tool schemas follow the pinned experimental dependency and carry no DSH stability promise.
+- Extension mode connects on the first browser tool call, not at Session startup. A missing extension fails that call quickly; an unapproved connection holds it until `toolCallTimeoutMs` (the MCP client default when omitted), and later calls in the same Session wait on the same pending connection until the user approves or the Session ends. Raise `toolCallTimeoutMs` when approving manually. A token that does not match the extension's makes the connection page show `Invalid token provided.` without offering manual approval, so calls time out the same way.
+- The pinned server opens the connection page with the token in its URL, so the token is briefly visible in the browser launch command line and can remain in browser history.
 
 <a id="dev-note"></a>
 ### Dev Note
