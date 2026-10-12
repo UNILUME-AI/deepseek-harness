@@ -33,6 +33,8 @@ MCP providers use `mountSessionMcp` from `@deepseek-ai/dsh-experimental-browser-
 
 A busy attachment skips startup permanently for that live activation while its other work continues. Releasing the attachment does not retry skipped activations; a newly created or resumed Agent can acquire it. Startup failure or cancellation rejects Agent creation or resume and triggers creation rollback, including client cleanup. Reconnection is disabled. Loading or reloading a provider applies only to future Agent activations.
 
+The MCP helper accepts fixed environment overrides or an asynchronous environment resolver. It invokes the resolver once per Session startup before launching the server; resolution failure follows the same acquisition rollback and releases the reservation.
+
 Callers can inspect prompt assembly and scoped tool definitions after awaited Agent creation or resume completes.
 
 Browser tools and resource requests targeting this server use the same queue and require the calling Session's own connection. Other MCP servers remain usable. Inherited server instructions are omitted without ownership; the shared server-name inventory keeps its normal scope behavior.

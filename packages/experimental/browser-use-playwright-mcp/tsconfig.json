@@ -16,6 +16,15 @@
     },
     {
       "path": "../../session/working-directory"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../credentials/credentials"
+    },
+    {
+      "path": "../../util/launch-environment"
     }
   ]
 }

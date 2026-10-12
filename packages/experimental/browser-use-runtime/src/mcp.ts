@@ -80,8 +80,8 @@ export interface SessionMcpOptions {
   command: string
   /** Arguments passed directly without a shell. */
   args: string[]
-  /** Explicit overrides merged into the MCP client's scrubbed child environment. */
-  env?: Record<string, string>
+  /** Child environment overrides, resolved once per Session startup; rejection rolls back acquisition. */
+  env?: Record<string, string> | (() => Promise<Record<string, string>>)
   /** Per-call timeout override; omission retains the MCP client default. */
   toolCallTimeoutMs?: number
 }
@@ -150,7 +150,7 @@ export function mountSessionMcp(ctx: Context, options: SessionMcpOptions): void 
             serverName: options.name,
             command: options.command,
             args: options.args,
-            ...options.env === undefined ? {} : { env: options.env },
+            ...options.env === undefined ? {} : { env: typeof options.env === 'function' ? await options.env() : options.env },
             cwd: await workingDirectory.ensure(agent, signal),
             ...options.toolCallTimeoutMs === undefined ? {} : { toolCallTimeoutMs: options.toolCallTimeoutMs },
             failOnStartupError: true,
