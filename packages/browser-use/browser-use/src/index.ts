@@ -1,5 +1,5 @@
 /**
- * Exclusive named registration for the browser-use capability.
+ * Named registrations for the browser-use capability; distinct names coexist.
  * @module @deepseek-ai/dsh-browser-use
  */
 
@@ -12,34 +12,35 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** Owns one optional provider registration in the shared browser-use service. */
+/** Owns the provider registrations in the shared browser-use service. */
 export class BrowserUseRegistry extends Service {
-  private registration: BrowserUseProviderName | undefined
+  private readonly registrations = new Set<BrowserUseProviderName>()
 
   constructor(ctx: Context) {
     super(ctx, 'browserUse')
   }
 
-  /** Name of the registered provider, including while its resources are closing. */
-  get providerName(): BrowserUseProviderName | undefined {
-    return this.registration
+  /** Names of the registered providers in registration order, including providers whose resources are closing. */
+  get providerNames(): readonly BrowserUseProviderName[] {
+    return [...this.registrations]
   }
 
   /**
-   * Reserve the sole provider slot until the contribution is disposed.
-   * A second registration fails even when it repeats the current name. Providers
-   * must stop their tools and await owned work before releasing this registration.
+   * Reserve one provider name until the contribution is disposed.
+   * Providers with distinct names coexist; repeating a registered name fails because the name
+   * is also the provider's tool namespace. Providers must stop their tools and await owned work
+   * before releasing this registration.
    * @param name - provider-owned name used in registration diagnostics.
    * @returns the effect disposer for this exact registration.
    */
   register(name: BrowserUseProviderName): () => Promise<void> {
-    if (this.registration !== undefined) {
-      throw new Error(`browser use provider "${this.registration}" is already registered`)
+    if (this.registrations.has(name)) {
+      throw new Error(`browser use provider "${name}" is already registered`)
     }
     return this.ctx.effect(() => {
-      this.registration = name
+      this.registrations.add(name)
       return () => {
-        this.registration = undefined
+        this.registrations.delete(name)
       }
     }, 'browserUse.register()')
   }

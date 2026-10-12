@@ -1,0 +1,8 @@
+version: 1
+scenario: sidebar-browser-read-tools
+profile: headless
+composition: sidebar-browser-read-tools
+recording: authored
+header:
+  class: sidebar-browser-read-tools
+  pin: true

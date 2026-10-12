@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-通过 Playwright MCP 的上游工具检查网页并操作 Chromium。提供方在 Session 创建或恢复完成前初始化其 MCP 连接，并跨轮次保留连接。可以启动独立浏览器，也可以让一个 Session 接入已有浏览器，使用其现有标签页和登录状态。本包以实验状态发布，仅在显式挂载后启用。
+通过 Playwright MCP 的上游工具检查网页并操作 Chromium。提供方在 Session 创建或恢复完成前初始化其 MCP 连接，并跨轮次保留连接。可以启动独立浏览器，可以让一个 Session 接入已有浏览器、使用其现有标签页和登录状态，也可以读取用户在桌面版右栏正在看的标签。本包以实验状态发布，仅在显式挂载后启用。
 
 ## 目录
 
@@ -49,13 +49,32 @@ kind: "package-reference"
     capabilities: [vision]
 ```
 
-所有模式的 `capabilities` 默认均为 `[]`，只接受 `vision`。启用后，模型可使用上游坐标工具，如 `browser_mouse_click_xy`；省略时保留默认基于可访问性信息的工具目录。
+在桌面版中使用 `mode: sidebar`，把用户正在看的右栏浏览器标签交给模型。桌面外壳随附一个代替扩展浏览器可执行文件的占位程序，并监听一个只有当前用户可读写（0600）的 Unix 套接字；两者的路径以 `DSH_SIDEBAR_BROWSER_EXECUTABLE` 和 `DSH_SIDEBAR_BROWSER_SOCKET` 传给 Host，并生成每次启动的随机口令，以 `DSH_SIDEBAR_BROWSER_TOKEN` 传递。`socketToken` 读取该环境变量；提供方把它显式传入经清洗的 MCP 子进程环境，从不写入日志或连接页网址。外壳先以常量时间比较认证占位程序的请求，再接受中继地址。固定版本的服务器用扩展连接页网址启动 `executablePath`。占位程序经 `socketPath` 交出中继地址，外壳主进程以扩展身份接管当前激活且可见的右栏标签。外壳拒绝、不在或未在 `connectTimeoutMs` 内接受时，占位程序关闭中继，使这次浏览器调用失败而不是无限等待；下一次调用会重新尝试。本版本只读：提供方只注册上游快照、截图、导航、后退前进及列标签工具，并在执行时再次拒绝其他工具名；`browser_tabs` 只允许 `action: list`，导航只接受 HTTP(S)。快照和截图 schema 不暴露 `filename`，直接调用含该字段时也会失败。默认产物保存在 Session cwd 下提供方自己的 `.playwright-mcp` 输出目录中。外壳拒绝全部 `Input.*` 命令以及新开、关闭标签，用户切换标签、收起右栏或清除站点时断开连接。外壳一侧见[桌面应用](../../../apps/desktop/README.zh.md#sidebar-browser-tools)。此模式遵循附加模式的 Session 独占及清理规则。
+
+```yaml
+- name: '@deepseek-ai/dsh-browser-use'
+- name: '@deepseek-ai/dsh-experimental-browser-use-playwright-mcp'
+  config:
+    name: sidebar-browser
+    mode: sidebar
+    executablePath: !!js process.env.DSH_SIDEBAR_BROWSER_EXECUTABLE
+    socketPath: !!js process.env.DSH_SIDEBAR_BROWSER_SOCKET
+    socketToken: !!js process.env.DSH_SIDEBAR_BROWSER_TOKEN
+```
+
+`name` 设置浏览器操作注册名和 MCP 工具命名空间，默认 `playwright-mcp`。用不同名称多次挂载本包，即可在一个组合中提供多个浏览器，例如默认名称下的 `mode: extension` 与 `sidebar-browser` 名称下的 `mode: sidebar` 并存；名称重复时激活失败。
+
+所有模式的 `capabilities` 默认均为 `[]`，只接受 `vision`。在其他模式中，启用后模型可使用上游坐标工具，如 `browser_mouse_click_xy`；sidebar 模式仍隐藏这些工具；省略时保留默认基于可访问性信息的工具目录。
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
-| `mode` | 必填 | `launch`、`attach` 或 `extension`，在本次提供方激活期间固定 |
+| `name` | `playwright-mcp` | 注册名和工具命名空间；小写字母、数字和连字符，最多 32 个字符 |
+| `mode` | 必填 | `launch`、`attach`、`extension` 或 `sidebar`，在本次提供方激活期间固定 |
 | `headless` | `true` | 启动时不显示窗口 |
-| `executablePath` | 上游发现 | 启动使用的 Chromium 可执行文件 |
+| `executablePath` | 上游发现；sidebar 时必填 | 启动使用的 Chromium 可执行文件，或 sidebar 模式的桌面占位程序 |
+| `socketPath` | sidebar 时必填 | 接收中继地址的桌面外壳套接字；仅 sidebar 模式使用 |
+| `socketToken` | sidebar 时必填 | 从 Host 环境读取的每次启动的外壳认证口令；仅 sidebar 模式使用 |
+| `connectTimeoutMs` | `10000` | 占位程序等待外壳接受连接的毫秒数；仅 sidebar 模式使用 |
 | `endpoint` | attach 时必填 | 已有浏览器调试端点 |
 | `browser` | `chrome` | 扩展浏览器渠道：`chrome` 或 `msedge` |
 | `extensionTokenEnv` | 手动批准 | 扩展凭据引用；仅扩展模式使用 |
@@ -63,7 +82,7 @@ kind: "package-reference"
 | `toolCallTimeoutMs` | MCP 客户端默认值 | 单次调用超时，单位为毫秒 |
 | `pointerCoordinates` | `pixel` | 已配置模型在指针类工具上输出的坐标空间 |
 
-[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-experimental-browser-use-playwright-mcp)列出接受的字段。浏览器模式由 profile 或 preset 选择。子进程清空继承的 `PLAYWRIGHT_MCP_*` 选项，仅从已配置的引用设置 `PLAYWRIGHT_MCP_EXTENSION_TOKEN`，令牌不会出现在 MCP 服务器的参数里，但固定版本的服务器会把它拼进扩展连接页的网址，再交给浏览器可执行文件打开。扩展模式拒绝 `endpoint`、`headless` 和 `executablePath`。
+[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-experimental-browser-use-playwright-mcp)列出接受的字段。浏览器模式由 profile 或 preset 选择。子进程清空继承的 `PLAYWRIGHT_MCP_*` 选项，仅从已配置的引用设置 `PLAYWRIGHT_MCP_EXTENSION_TOKEN`，令牌不会出现在 MCP 服务器的参数里，但固定版本的服务器会把它拼进扩展连接页的网址，再交给浏览器可执行文件打开。扩展模式拒绝 `endpoint`、`headless` 和 `executablePath`。sidebar 模式清空继承的扩展令牌，把套接字路径、认证口令、Node 可执行文件和连接期限加入子进程环境，并拒绝 `endpoint`、`headless`、`browser` 和 `extensionTokenEnv`。
 
 为整个进程配置系统提示词的 `toolOrder` 时，将浏览器工具留在 `<unlisted-tools>` 中。显式列出浏览器工具名称可能导致未获得浏览器连接的 Session 无法组装提示词。
 
@@ -98,7 +117,8 @@ kind: "package-reference"
 ## 进一步探索
 
 - [浏览器使用](../../../docs/subsystems/browser-use.zh.md) — 提供方选择与 Session 所有权。
-- [浏览器使用服务](../../browser-use/browser-use/README.zh.md) — 提供方独占注册。
+- [浏览器使用服务](../../browser-use/browser-use/README.zh.md) — 提供方具名注册。
+- [桌面应用](../../../apps/desktop/README.zh.md#sidebar-browser-tools) — 右栏中继与占位可执行文件。
 - [Playwright MCP](https://github.com/microsoft/playwright-mcp) — 上游安装与浏览器行为。
 
 -----
@@ -110,7 +130,7 @@ kind: "package-reference"
 
 #### 模型可见内容
 
-工具以 `mcp__playwright-mcp__<tool>` 命名，保留上游描述和 JSON schema。使用归一化 `pointerCoordinates` 空间时，三个指针工具改为向模型展示 0-1000 视口归一化坐标（并写明轴顺序），而向上游转发 CSS 像素。文本与截图通过常规工具结果流程进入 Session 日志。启用 `vision` 会向目录增加坐标工具定义。截图需要附件存储及支持图片输入的模型路由；其他路由会收到 MCP 图片诊断。MCP 客户端还提供资源工具和注明服务器来源的指导。只有当前 Session 拥有连接后才显示浏览器指导；针对该服务器的资源请求执行相同的所有权检查。
+工具以 `mcp__<name>__<tool>` 命名（默认 `mcp__playwright-mcp__<tool>`），保留上游描述和 JSON schema。使用归一化 `pointerCoordinates` 空间时，三个指针工具改为向模型展示 0-1000 视口归一化坐标（并写明轴顺序），而向上游转发 CSS 像素。文本与截图通过常规工具结果流程进入 Session 日志。启用 `vision` 会向目录增加坐标工具定义。截图需要附件存储及支持图片输入的模型路由；其他路由会收到 MCP 图片诊断。MCP 客户端还提供资源工具和注明服务器来源的指导。只有当前 Session 拥有连接后才显示浏览器指导；针对该服务器的资源请求执行相同的所有权检查。
 
 #### Token 影响
 
@@ -134,6 +154,9 @@ kind: "package-reference"
 - 工具 schema 跟随固定的实验依赖版本，不承诺 DSH 稳定性。
 - 扩展模式在第一次调用浏览器工具时才建立连接，不在 Session 启动时。没装扩展时，该次调用很快报错；连接未获批准时，该次调用一直等到 `toolCallTimeoutMs`（省略时为 MCP 客户端默认值）才超时，同一 Session 的后续调用会等待同一个未完成的连接，直到用户批准或 Session 结束。手动批准时应调大 `toolCallTimeoutMs`。令牌与扩展里的不一致时，连接页显示 `Invalid token provided.`，也不提供手动批准，调用同样会超时。
 - 固定版本的服务器用带令牌的网址打开连接页，所以令牌会短暂出现在浏览器启动命令行里，也可能留在浏览器历史中。
+- sidebar 模式在本版本只读，由提供方的工具允许列表和桌面外壳的 CDP 允许列表强制。脚本和输入工具被隐藏，并在执行时拒绝；Playwright 内部的 `Runtime.*` 读取仍然可用。键盘焦点、「AI 正在操作」遮罩以及模型操作期间拦截用户键盘留待后续版本。
+- 桌面外壳拒绝右栏连接时，固定版本的服务器报告 `Extension disconnected before initialization: undefined`，丢失了关闭原因。调用在一秒内失败，下一次调用会重试。
+- Windows 不支持 sidebar 模式：占位程序是 POSIX shell 脚本，中继监听 Unix 套接字。
 - 归一化指针坐标在每次坐标调用时通过上游 `browser_evaluate` 工具读取实时视口；没有该工具的服务器无法提供归一化空间。
 
 <a id="dev-note"></a>

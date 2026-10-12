@@ -390,6 +390,21 @@ describe('syncTools', () => {
     expect(forwardOptions.toolDefinition.name).toBe('echo')
   })
 
+  it('omits filtered upstream tools and removes their previous registrations on synchronization', async () => {
+    const client = createMockClient([
+      { name: 'read', inputSchema: { type: 'object' } },
+      { name: 'write', inputSchema: { type: 'object' } },
+    ], { content: [{ type: 'text', text: 'ok' }] })
+    const previous = await syncTools(client as never, ctx, defaultOpts, new Map())
+    expect(ctx.tools.get('mcp__srv__write')).toBeDefined()
+    await syncTools(client as never, ctx, { ...defaultOpts, decorateTool: tool => tool.rawName === 'read' ? tool : undefined }, previous)
+    expect(ctx.tools.get('mcp__srv__read')).toBeDefined()
+    expect(ctx.tools.get('mcp__srv__write')).toBeUndefined()
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c1'), name: 'mcp__srv__write', arguments: {} })
+    expect(result.isError).toBe(true)
+    expect(client.callTool).not.toHaveBeenCalled()
+  })
+
   it('keeps upstream definitions and calls verbatim when the decorator passes tools through', async () => {
     const client = createMockClient(
       [{ name: 'echo', description: 'Say hello', inputSchema: { type: 'object' } }],

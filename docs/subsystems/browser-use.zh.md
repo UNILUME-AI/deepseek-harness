@@ -6,7 +6,7 @@
 
 ## 选择提供方
 
-在同一组合中挂载 [`dsh-browser-use`](../../packages/browser-use/browser-use/README.zh.md) 和一个提供方。这些提供方是实验性公共 npm 包，需要显式激活。它们最初支持的浏览器引擎是 Chromium。
+在同一组合中挂载 [`dsh-browser-use`](../../packages/browser-use/browser-use/README.zh.md) 和一个或多个名称不同的提供方；例如桌面版可以同时经 Playwright Extension 提供用户的 Chrome 和自己的右栏浏览器。这些提供方是实验性公共 npm 包，需要显式激活。它们最初支持的浏览器引擎是 Chromium。
 
 | 提供方 | 集成方式 |
 |---|---|
@@ -14,7 +14,7 @@
 | [Chrome DevTools MCP](../../packages/experimental/browser-use-chrome-devtools-mcp/README.zh.md) | 通过 MCP 进行 Chrome DevTools 检查与控制 |
 | [Stagehand](../../packages/experimental/browser-use-stagehand-native/README.zh.md) | 原生浏览器操作，支持 AI（人工智能）辅助的动作、观测与提取 |
 
-共享服务只注册名称，并拒绝任何第二次提供方注册，包括同名实例。它不包含通用浏览器操作方法、浏览器资源或模型控制的选择器。Profile 或 preset 中的提供方配置为此次激活选择启动或附加模式。
+共享服务只注册名称：不同名称的提供方可以并存，名称已被注册的第二个提供方会被拒绝。它不包含通用浏览器操作方法、浏览器资源或模型控制的选择器。Profile 或 preset 中的提供方配置为此次激活选择启动或附加模式。
 
 ## Session 所有权
 
@@ -50,13 +50,14 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.browserUse` — `BrowserUseRegistry`
 
-Owns one optional provider registration in the shared browser-use service.
+Owns the provider registrations in the shared browser-use service.
 
 ```ts cordis-catalog
 /**
- * Reserve the sole provider slot until the contribution is disposed.
- * A second registration fails even when it repeats the current name. Providers
- * must stop their tools and await owned work before releasing this registration.
+ * Reserve one provider name until the contribution is disposed.
+ * Providers with distinct names coexist; repeating a registered name fails because the name
+ * is also the provider's tool namespace. Providers must stop their tools and await owned work
+ * before releasing this registration.
  * @param name - provider-owned name used in registration diagnostics.
  * @returns the effect disposer for this exact registration.
  */

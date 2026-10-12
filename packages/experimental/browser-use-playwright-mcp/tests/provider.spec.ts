@@ -57,10 +57,101 @@ it.each(['chrome', 'msedge'] as const)('connects through the %s extension and cl
   expect(options.env).toMatchObject({ PLAYWRIGHT_MCP_EXTENSION_TOKEN: '', playwright_mcp_headless: '' })
 })
 
+it('connects the desktop Sidebar through its stand-in executable and socket under a configured name', () => {
+  vi.stubEnv('PLAYWRIGHT_MCP_EXTENSION_TOKEN', inheritedToken)
+  Provider.apply(new Context(), Provider.Config({
+    name: 'sidebar-browser', mode: 'sidebar', executablePath: '/app/sidebar-browser-connect', socketPath: '/run/sidebar.sock', socketToken: '0'.repeat(64),
+  }))
+  const options = vi.mocked(mountSessionMcp).mock.calls[0]![1]
+  expect(options).toMatchObject({ name: 'sidebar-browser', exclusive: true })
+  expect(options.args.slice(1)).toEqual(['--browser', 'chrome', '--extension', '--executable-path', '/app/sidebar-browser-connect'])
+  expect(options.env).toEqual({
+    PLAYWRIGHT_MCP_EXTENSION_TOKEN: '',
+    [Provider.SIDEBAR_ENV.socket]: '/run/sidebar.sock',
+    [Provider.SIDEBAR_ENV.token]: '0'.repeat(64),
+    [Provider.SIDEBAR_ENV.node]: process.execPath,
+    [Provider.SIDEBAR_ENV.connectTimeoutMs]: '10000',
+  })
+})
+
+it('accepts a provider name of 32 characters, the MCP server-name limit', () => {
+  const name = `b${'x'.repeat(31)}`
+  expect(Provider.Config({ mode: 'launch', name }).name).toBe(name)
+})
+
+it('keeps the default provider name so existing configurations register unchanged', () => {
+  expect(Provider.Config({ mode: 'launch' }).name).toBe('playwright-mcp')
+  Provider.apply(new Context(), Provider.Config({ mode: 'extension', name: 'chrome-extension' }))
+  Provider.apply(new Context(), { mode: 'launch', headless: true })
+  expect(vi.mocked(mountSessionMcp).mock.calls.map(call => call[1].name)).toEqual(['chrome-extension', 'playwright-mcp'])
+})
+
+it('filters Sidebar tools by upstream name and refuses tab mutations and script navigation before forwarding', async () => {
+  Provider.apply(new Context(), Provider.Config({
+    mode: 'sidebar', executablePath: '/app/connect', socketPath: '/run/s.sock', socketToken: '0'.repeat(64),
+  }))
+  const decorate = vi.mocked(mountSessionMcp).mock.calls[0]![1].decorateTool!
+  const call = vi.fn(async () => ({}))
+  const tool = { name: 'mcp__playwright-mcp__browser_tabs', rawName: 'browser_tabs', description: 'Tabs', inputSchema: { type: 'object' }, call }
+  for (const rawName of ['browser_evaluate', 'browser_run_code_unsafe', 'browser_fill_form', 'browser_select_option', 'browser_click', 'future_tool']) {
+    expect(decorate({ ...tool, rawName }, call)).toBeUndefined()
+  }
+  const tabs = decorate(tool, call)!
+  expect(tabs.inputSchema).toMatchObject({ properties: { action: { enum: ['list'] } } })
+  const execution = { signal: new AbortController().signal } as Parameters<typeof tabs.call>[1]
+  for (const action of ['new', 'close', 'select']) expect(() => tabs.call({ action }, execution)).toThrow('only reading and navigation')
+  const navigate = decorate({ ...tool, rawName: 'browser_navigate' }, call)!
+  for (const url of ['javascript:document.body.remove()', 'about:blank', 'about:blank#page', 'file:///page.html']) {
+    expect(() => navigate.call({ url }, execution)).toThrow('HTTP(S) URL')
+  }
+  expect(call).not.toHaveBeenCalled()
+  await tabs.call({ action: 'list' }, execution)
+  await navigate.call({ url: 'https://site.example/' }, execution)
+  expect(call).toHaveBeenCalledTimes(2)
+})
+
+it.each(['browser_snapshot', 'browser_take_screenshot'])('omits filename from the Sidebar %s schema and refuses it before forwarding', async (rawName) => {
+  Provider.apply(new Context(), Provider.Config({
+    mode: 'sidebar', executablePath: '/app/connect', socketPath: '/run/s.sock', socketToken: '0'.repeat(64),
+  }))
+  const decorate = vi.mocked(mountSessionMcp).mock.calls[0]![1].decorateTool!
+  const call = vi.fn(async () => ({}))
+  const inputSchema = {
+    type: 'object', properties: { filename: { type: 'string' }, target: { type: 'string' } },
+    required: ['filename', 'target'], additionalProperties: true,
+  }
+  const tool = decorate({ name: `mcp__playwright-mcp__${rawName}`, rawName, description: 'Read page', inputSchema, call }, call)!
+  expect(tool.inputSchema).toEqual({
+    type: 'object', properties: { target: { type: 'string' } }, required: ['target'], additionalProperties: false,
+  })
+  expect(inputSchema.properties).toHaveProperty('filename')
+  expect(inputSchema.required).toEqual(['filename', 'target'])
+  const execution = { signal: new AbortController().signal } as Parameters<typeof tool.call>[1]
+  for (const filename of ['package.json', '../package.json', '', undefined]) {
+    expect(() => tool.call({ filename }, execution)).toThrow('filename is refused')
+  }
+  expect(call).not.toHaveBeenCalled()
+  await tool.call({ target: 'e1' }, execution)
+  expect(call).toHaveBeenCalledWith({ target: 'e1' }, execution)
+})
+
+it.each([undefined, null, [], 'invalid'])('rejects malformed upstream Sidebar read-tool schema properties: %j', (properties) => {
+  Provider.apply(new Context(), Provider.Config({
+    mode: 'sidebar', executablePath: '/app/connect', socketPath: '/run/s.sock', socketToken: '0'.repeat(64),
+  }))
+  const decorate = vi.mocked(mountSessionMcp).mock.calls[0]![1].decorateTool!
+  const call = vi.fn(async () => ({}))
+  expect(() => decorate({
+    name: 'mcp__playwright-mcp__browser_snapshot', rawName: 'browser_snapshot', description: 'Read page',
+    inputSchema: { type: 'object', properties }, call,
+  }, call)).toThrow('requires object schema properties')
+})
+
 it.each([
   { mode: 'launch' as const },
   { mode: 'attach' as const, endpoint: 'http://localhost:9222' },
   { mode: 'extension' as const },
+  { mode: 'sidebar' as const, executablePath: '/app/connect', socketPath: '/run/s.sock', socketToken: '0'.repeat(64) },
 ])('exposes vision only when configured in $mode mode', (config) => {
   Provider.apply(new Context(), Provider.Config({ ...config, capabilities: ['vision'] }))
   expect(vi.mocked(mountSessionMcp).mock.calls[0]![1].args.slice(-2)).toEqual(['--caps', 'vision'])
@@ -114,13 +205,22 @@ it.each([
   { mode: 'extension', capabilities: ['unknown'] },
   { mode: 'launch', browser: 'msedge' },
   { mode: 'attach', endpoint: 'http://localhost:9222', extensionTokenEnv: 'BROWSER_TOKEN' },
+  { mode: 'sidebar', socketPath: '/run/s.sock' },
+  { mode: 'sidebar', executablePath: '/app/connect' },
+  { mode: 'sidebar', executablePath: '/app/connect', socketPath: '/run/s.sock', browser: 'chrome' },
+  { mode: 'sidebar', executablePath: '/app/connect', socketPath: '/run/s.sock', extensionTokenEnv: 'BROWSER_TOKEN' },
+  { mode: 'sidebar', executablePath: '/app/connect', socketPath: '/run/s.sock', connectTimeoutMs: 0 },
+  { mode: 'launch', name: 'Bad Name' },
+  { mode: 'launch', name: `b${'x'.repeat(32)}` },
+  { mode: 'launch', socketPath: '/run/s.sock' },
+  { mode: 'extension', connectTimeoutMs: 5 },
 ])('rejects unsupported configuration before resource mounting: %j', (config) => {
   expect(() => Provider.Config(config as Parameters<typeof Provider.Config>[0])).toThrow()
   expect(mountSessionMcp).not.toHaveBeenCalled()
 })
 
 it('defaults pointerCoordinates to pixel and wires the tool decorator for every space', () => {
-  expect(Provider.Config({ mode: 'launch' })).toEqual({ mode: 'launch', headless: true, capabilities: [], pointerCoordinates: 'pixel' })
+  expect(Provider.Config({ mode: 'launch' })).toEqual({ mode: 'launch', headless: true, name: 'playwright-mcp', capabilities: [], pointerCoordinates: 'pixel' })
   expect(Provider.Config({ mode: 'attach', endpoint: 'http://127.0.0.1:9222', pointerCoordinates: 'normalized-1000-xy' }))
     .toMatchObject({ pointerCoordinates: 'normalized-1000-xy' })
   expect(() => Provider.Config({ mode: 'launch', pointerCoordinates: 'diagonal' } as never)).toThrow()

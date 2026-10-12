@@ -6,7 +6,7 @@ Browser use lets a model inspect and operate web pages through a configured back
 
 ## Choose a provider
 
-Mount [`dsh-browser-use`](../../packages/browser-use/browser-use/README.md) and one provider in the same composition. The providers are experimental public npm packages and require explicit activation. Their initial browser engine is Chromium.
+Mount [`dsh-browser-use`](../../packages/browser-use/browser-use/README.md) and one or more providers with distinct names in the same composition; for example, the desktop application can offer the user's Chrome through Playwright Extension beside its own Sidebar browser. The providers are experimental public npm packages and require explicit activation. Their initial browser engine is Chromium.
 
 | Provider | Integration |
 |---|---|
@@ -14,7 +14,7 @@ Mount [`dsh-browser-use`](../../packages/browser-use/browser-use/README.md) and 
 | [Chrome DevTools MCP](../../packages/experimental/browser-use-chrome-devtools-mcp/README.md) | Chrome DevTools inspection and control through MCP |
 | [Stagehand](../../packages/experimental/browser-use-stagehand-native/README.md) | Native browser operations with AI-assisted actions, observation, and extraction |
 
-The shared service registers only a name and rejects any second provider, including another instance with the same name. It has no common browser-operation methods, browser resources, or model-controlled selector. Provider configuration in a profile or preset selects launch or attachment for that activation.
+The shared service registers only names: providers with distinct names coexist, and a second provider with a name already registered is rejected. It has no common browser-operation methods, browser resources, or model-controlled selector. Provider configuration in a profile or preset selects launch or attachment for that activation.
 
 ## Session ownership
 
@@ -50,13 +50,14 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.browserUse` — `BrowserUseRegistry`
 
-Owns one optional provider registration in the shared browser-use service.
+Owns the provider registrations in the shared browser-use service.
 
 ```ts cordis-catalog
 /**
- * Reserve the sole provider slot until the contribution is disposed.
- * A second registration fails even when it repeats the current name. Providers
- * must stop their tools and await owned work before releasing this registration.
+ * Reserve one provider name until the contribution is disposed.
+ * Providers with distinct names coexist; repeating a registered name fails because the name
+ * is also the provider's tool namespace. Providers must stop their tools and await owned work
+ * before releasing this registration.
  * @param name - provider-owned name used in registration diagnostics.
  * @returns the effect disposer for this exact registration.
  */

@@ -1,0 +1,11 @@
+- insert:
+    - id: sidebar-browser-use
+      name: '@deepseek-ai/dsh-browser-use'
+    - id: sidebar-browser-tools
+      name: '@deepseek-ai/dsh-experimental-browser-use-playwright-mcp'
+      config:
+        name: sidebar-browser
+        mode: sidebar
+        executablePath: !!js process.execPath
+        socketPath: fixture-sidebar.sock
+        socketToken: !!js "'0'.repeat(64)"

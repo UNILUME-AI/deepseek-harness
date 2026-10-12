@@ -4,6 +4,8 @@ Status: implemented
 
 [English](2026-09-12-browser-use-provider-registration.md) | 中文
 
+> Session 所有权仍然有效；单一提供方注册已被取代：不同名称的提供方现在可以并存，只有重复名称会失败（见[浏览器操作](../../../../docs/subsystems/browser-use.zh.md)）。
+
 ## 问题
 
 浏览器控制后端暴露不同的操作与观测格式。在可移植消费方存在之前，通用浏览器动作 API 会约束这些实验。浏览器会话可以隔离，而附加现有已登录浏览器必须保留其状态，并防止一个提供方内出现并发所有权。

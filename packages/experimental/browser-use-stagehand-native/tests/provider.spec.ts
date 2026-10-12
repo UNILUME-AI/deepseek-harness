@@ -111,7 +111,7 @@ it('lazily launches distinct browsers and preserves each Session tab state', asy
   expect((await execute(first, 'tabs', { action: 'list' })).content).toEqual([{ type: 'text', text: '{"tabs":[{"pageId":"tab-1","url":"https://first.example","title":"Fixture heading","active":true}]}' }])
   await provider.dispose()
   expect(fixture.browsers.every(browser => browser.closed && browser.stagehandClosed)).toBe(true)
-  expect(ctx.browserUse.providerName).toBeUndefined()
+  expect(ctx.browserUse.providerNames).toEqual([])
   expect(ctx.tools.schemas()).toEqual([])
 })
 
@@ -181,12 +181,12 @@ it('holds the provider reservation until browser cleanup settles', async () => {
   try {
     await started.promise
     expect(ctx.tools.schemas()).toEqual([])
-    expect(() => ctx.browserUse.register(BrowserUseProviderName('other'))).toThrow('already registered')
+    expect(() => ctx.browserUse.register(BrowserUseProviderName('stagehand-native'))).toThrow('already registered')
   } finally {
     settle.resolve()
     await closing
   }
-  expect(ctx.browserUse.providerName).toBeUndefined()
+  expect(ctx.browserUse.providerNames).toEqual([])
 })
 
 it('cancels queued work without navigating while an earlier call settles', async () => {
@@ -235,7 +235,7 @@ it.each(['cancel', 'dispose'] as const)('drains native inference before completi
     else controller.abort(new Error('Cancel native inference'))
     await closeStarted.promise
     expect(operationSettled).toBe(false)
-    expect(ctx.browserUse.providerName).toBe('stagehand-native')
+    expect(ctx.browserUse.providerNames).toEqual(['stagehand-native'])
     expect((await execute(second, 'tabs', { action: 'list' })).isError).toBe(true)
   } finally {
     release.resolve()
@@ -317,7 +317,7 @@ it('releases the provider after a terminated connection reports an SDK cleanup w
   await execute(first, 'tabs', { action: 'list' })
   await provider.dispose()
   expect(warning).toHaveBeenCalledWith(acquisition.warning)
-  expect(ctx.browserUse.providerName).toBeUndefined()
+  expect(ctx.browserUse.providerNames).toEqual([])
   expect(fixture.browsers[0]?.closed).toBe(true)
 })
 
@@ -328,7 +328,7 @@ it('closes owned Chromium but retains the reservation if its Worker fails to ter
   await execute(first, 'tabs', { action: 'list' })
   await provider.dispose()
   expect(fixture.browsers[0]?.closed).toBe(true)
-  expect(ctx.browserUse.providerName).toBe('stagehand-native')
+  expect(ctx.browserUse.providerNames).toEqual(['stagehand-native'])
 })
 
 
@@ -382,7 +382,7 @@ it.each(['launch', 'attach'] as const)('releases an undrained extension only aft
   await execute(first, 'tabs', { action: 'list' })
   await provider.dispose()
   expect(fixture.browsers[0]?.closed).toBe(mode === 'launch')
-  expect(ctx.browserUse.providerName).toBe(mode === 'launch' ? undefined : 'stagehand-native')
+  expect(ctx.browserUse.providerNames).toEqual(mode === 'launch' ? [] : ['stagehand-native'])
 })
 
 it('retains ownership when both SDK drainage and owned Chromium cleanup fail', async () => {
@@ -393,7 +393,7 @@ it('retains ownership when both SDK drainage and owned Chromium cleanup fail', a
   await execute(first, 'tabs', { action: 'list' })
   await provider.dispose()
   expect(fixture.browsers[0]?.closed).toBe(true)
-  expect(ctx.browserUse.providerName).toBe('stagehand-native')
+  expect(ctx.browserUse.providerNames).toEqual(['stagehand-native'])
 })
 
 it('blocks reconnection and another owner after canceled native work fails to drain', async () => {
@@ -417,5 +417,5 @@ it('blocks reconnection and another owner after canceled native work fails to dr
   expect(fixture.browsers).toHaveLength(1)
   await provider.dispose()
   expect(fixture.browsers[0]?.closed).toBe(false)
-  expect(ctx.browserUse.providerName).toBe('stagehand-native')
+  expect(ctx.browserUse.providerNames).toEqual(['stagehand-native'])
 })

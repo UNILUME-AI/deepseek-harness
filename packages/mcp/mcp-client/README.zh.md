@@ -69,7 +69,7 @@ kind: "package-reference"
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-mcp-client)是每个受支持字段的穷尽式真源。
 
-编程式提供方运行时可以传入 `decorateTool`：一个按工具的适配器，在每次工具同步注册前应用。它可改写模型可见的描述与入参 schema、包裹转发调用，并得到一个 `callSibling` 调用器用于在同一 MCP 连接上调用其他工具；浏览器提供方包用这一接缝实现特定模型的指针坐标空间。兄弟调用不经过 ToolRuntime 的守卫、审批和 Session 日志，适配器只应用它做只读的辅助调用。传入非函数值会在加载时拒绝插件激活。
+编程式提供方运行时可以传入 `decorateTool`：一个按工具的适配器，在每次工具同步注册前应用。它可改写模型可见的描述与入参 schema、包裹转发调用，或返回 `undefined` 以不注册该工具，并得到一个 `callSibling` 调用器用于在同一 MCP 连接上调用其他工具；浏览器提供方包用这一接缝实现特定模型的指针坐标空间。兄弟调用不经过 ToolRuntime 的守卫、审批和 Session 日志，适配器只应用它做只读的辅助调用。未配置适配器时，原样注册上游工具。传入非函数值会在加载时拒绝插件激活。
 
 启动后，服务器的工具会以 `mcp__<serverName>__<tool>` 形式出现——试着用一条提示词调用其中一个。如果初始连接失败，harness 仍会启动，但该服务器的工具不会出现，并会记录一条错误。设置 `failOnStartupError: true` 会拒绝插件激活；[app-boot 的启动策略](../../boot/app-boot/README.zh.md)仍允许可选 MCP 配置项失败，而不中止 harness。
 
