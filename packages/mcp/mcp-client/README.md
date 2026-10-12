@@ -69,6 +69,8 @@ Add one entry per server; nothing else is required. After the harness starts, th
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-mcp-client) is the exhaustive source for every accepted field.
 
+Programmatic provider runtimes may pass `decorateTool`, a per-tool adapter applied at every tool synchronization before registration. It rewrites the model-facing description and input schema and wraps the forwarded call, and receives a `callSibling` invoker for calling another tool on the same MCP connection; the browser provider packages use this seam for model-specific pointer coordinate spaces. Sibling calls bypass ToolRuntime guards, approval, and the Session log, so decorators should use them only for read-only helper calls. A non-function value rejects plugin activation at load.
+
 After startup, the server's tools appear as `mcp__<serverName>__<tool>` — try a prompt that uses one. If the initial connection fails, the harness still starts but no tools from that server appear, and an error is logged. Setting `failOnStartupError: true` rejects plugin activation; [app-boot's startup policy](../../boot/app-boot/README.md) still permits an optional MCP entry to fail without aborting the harness.
 
 ### Tool naming and coexistence

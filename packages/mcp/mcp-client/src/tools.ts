@@ -33,10 +33,36 @@ export interface ToolBridgeOptions {
   toolCallTimeoutMs: number
   /** Maximum UTF-8 bytes of one serialized `dsh/presentation` payload. */
   maxPresentationMetaBytes: number
+  /** Optional per-tool adaptation applied at every tool synchronization before registration. */
+  decorateTool?: McpToolDecorator
 }
 
 /** State for one sync generation: the current set of disposers keyed by public name. */
 export type ToolDisposers = Map<string, () => void>
+
+/**
+ * Invoke another tool on the same MCP connection while one tool executes.
+ * The sibling call bypasses ToolRuntime guards, approval, and the Session log,
+ * so decorators must restrict it to read-only helper calls. The sibling result
+ * is the unvalidated external MCP result; the caller owns interpretation and
+ * error handling.
+ * @param rawName - upstream tool name as listed by the server.
+ * @param args - arguments sent verbatim to the sibling tool.
+ * @param execution - the exact invocation requesting the sibling call.
+ * @returns the raw MCP result of the sibling call.
+ */
+export type McpSiblingCall = (rawName: string, args: Record<string, unknown>, execution: ToolExecution) => Promise<unknown>
+
+/**
+ * Registration-time adaptation for one discovered upstream tool, applied by
+ * {@link syncTools} at every synchronization. The adapter may rewrite the
+ * model-facing description and input schema and wrap the forwarded call — for
+ * example to convert a model's normalized pointer coordinates to the upstream
+ * pixel convention before calling. It must preserve `name` and `rawName`
+ * identity and return the complete replacement options. Omission registers
+ * the upstream tool verbatim.
+ */
+export type McpToolDecorator = (tool: McpToolDefinitionOptions, callSibling: McpSiblingCall) => McpToolDefinitionOptions
 
 /** Canonical MCP result exposed to PTC mode without discarding protocol blocks. */
 export type McpResult<Structured extends JsonValue = JsonValue> = {
@@ -138,7 +164,7 @@ export async function syncTools(
         `mcp-client(${opts.serverName}): server listed tool "${tool.name}" more than once — invalid tool list`,
       )
     }
-    definitions.set(publicName, createMcpToolDefinition(ctx, {
+    const options: McpToolDefinitionOptions = {
       name: publicName,
       rawName: tool.name,
       description: tool.description ?? '',
@@ -150,7 +176,14 @@ export async function syncTools(
         { signal: execution.signal, timeout: opts.toolCallTimeoutMs, toolDefinition: tool },
       ),
       maxPresentationMetaBytes: opts.maxPresentationMetaBytes,
-    }))
+    }
+    const decorate = opts.decorateTool
+    definitions.set(publicName, createMcpToolDefinition(ctx, decorate === undefined
+      ? options
+      : decorate(options, (rawName, args, execution) => client.callTool(
+        { name: rawName, arguments: args },
+        { signal: execution.signal, timeout: opts.toolCallTimeoutMs },
+      ))))
   }
 
   // Phase 2: swap generations.

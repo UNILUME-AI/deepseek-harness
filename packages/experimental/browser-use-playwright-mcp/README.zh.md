@@ -61,10 +61,22 @@ kind: "package-reference"
 | `extensionTokenEnv` | 手动批准 | 扩展凭据引用；仅扩展模式使用 |
 | `capabilities` | `[]` | 所有模式可选的 `vision` 坐标工具 |
 | `toolCallTimeoutMs` | MCP 客户端默认值 | 单次调用超时，单位为毫秒 |
+| `pointerCoordinates` | `pixel` | 已配置模型在指针类工具上输出的坐标空间 |
 
 [配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-experimental-browser-use-playwright-mcp)列出接受的字段。浏览器模式由 profile 或 preset 选择。子进程清空继承的 `PLAYWRIGHT_MCP_*` 选项，仅从已配置的引用设置 `PLAYWRIGHT_MCP_EXTENSION_TOKEN`，令牌不会出现在 MCP 服务器的参数里，但固定版本的服务器会把它拼进扩展连接页的网址，再交给浏览器可执行文件打开。扩展模式拒绝 `endpoint`、`headless` 和 `executablePath`。
 
 为整个进程配置系统提示词的 `toolOrder` 时，将浏览器工具留在 `<unlisted-tools>` 中。显式列出浏览器工具名称可能导致未获得浏览器连接的 Session 无法组装提示词。
+
+### 指针坐标
+
+上游服务器以相对视口的 CSS 像素声明指针位置，与其默认 `css` 缩放的截图处于同一空间。视觉模型则按各家约定输出坐标；BYOM 部署由配置声明自家模型的约定，通过 `pointerCoordinates` 告知提供方：
+
+| 取值 | 模型约定 |
+|---|---|
+| `pixel` | 绝对 CSS 像素（GPT-5、GPT-6） |
+| `normalized-1000-xy` | 按视口归一化到 0-1000（豆包 Seed、Qwen3.x；Gemini 预计也按具名的 `x`、`y` 填写，尚未实测） |
+
+映射依据各家公开的坐标约定（midscene 的模型适配层已整理）。上游入参是具名的 `x` 和 `y`，不存在按位置交换轴顺序的问题。归一化空间要求 `capabilities: [vision]`，坐标工具由它暴露；配了归一化空间却没开 `vision` 时，激活直接失败。归一化空间下，三个指针工具（`browser_mouse_move_xy`、`browser_mouse_click_xy`、`browser_mouse_drag_xy`）的描述会改写为 0-1000 视口坐标；超出 0-1000 或非有限数的参数直接返回工具错误，不会到达浏览器。每次坐标调用先通过上游 `browser_evaluate` 工具读取实时视口（每次坐标调用多一次 MCP 往返），再四舍五入并夹到视口边缘完成换算。上游结果会回显它实际用的像素值，所以结果末尾追加一行文字，重申 0-1000 空间与视口尺寸。`pixel` 保持工具定义与入参与上游逐字节一致。换算只对默认的视口截图成立：整页截图和元素截图都不等于视口，按它们读出的坐标换算不准。
 
 -----
 
@@ -98,7 +110,7 @@ kind: "package-reference"
 
 #### 模型可见内容
 
-工具以 `mcp__playwright-mcp__<tool>` 命名，保留上游描述和 JSON schema。文本与截图通过常规工具结果流程进入 Session 日志。启用 `vision` 会向目录增加坐标工具定义。截图需要附件存储及支持图片输入的模型路由；其他路由会收到 MCP 图片诊断。MCP 客户端还提供资源工具和注明服务器来源的指导。只有当前 Session 拥有连接后才显示浏览器指导；针对该服务器的资源请求执行相同的所有权检查。
+工具以 `mcp__playwright-mcp__<tool>` 命名，保留上游描述和 JSON schema。使用归一化 `pointerCoordinates` 空间时，三个指针工具改为向模型展示 0-1000 视口归一化坐标（并写明轴顺序），而向上游转发 CSS 像素。文本与截图通过常规工具结果流程进入 Session 日志。启用 `vision` 会向目录增加坐标工具定义。截图需要附件存储及支持图片输入的模型路由；其他路由会收到 MCP 图片诊断。MCP 客户端还提供资源工具和注明服务器来源的指导。只有当前 Session 拥有连接后才显示浏览器指导；针对该服务器的资源请求执行相同的所有权检查。
 
 #### Token 影响
 
@@ -122,6 +134,7 @@ kind: "package-reference"
 - 工具 schema 跟随固定的实验依赖版本，不承诺 DSH 稳定性。
 - 扩展模式在第一次调用浏览器工具时才建立连接，不在 Session 启动时。没装扩展时，该次调用很快报错；连接未获批准时，该次调用一直等到 `toolCallTimeoutMs`（省略时为 MCP 客户端默认值）才超时，同一 Session 的后续调用会等待同一个未完成的连接，直到用户批准或 Session 结束。手动批准时应调大 `toolCallTimeoutMs`。令牌与扩展里的不一致时，连接页显示 `Invalid token provided.`，也不提供手动批准，调用同样会超时。
 - 固定版本的服务器用带令牌的网址打开连接页，所以令牌会短暂出现在浏览器启动命令行里，也可能留在浏览器历史中。
+- 归一化指针坐标在每次坐标调用时通过上游 `browser_evaluate` 工具读取实时视口；没有该工具的服务器无法提供归一化空间。
 
 <a id="dev-note"></a>
 ### 开发备注

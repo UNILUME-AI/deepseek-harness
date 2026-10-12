@@ -191,6 +191,14 @@ describe('apply (plugin lifecycle)', () => {
     expect(ctx.tools.get('remote')).toBeUndefined()
   })
 
+  it('rejects a non-function decorateTool at load before any connection opens', async () => {
+    // The untyped parse value simulates a malformed programmatic caller.
+    const decorateTool = JSON.parse('"not-a-function"') as string
+    const config = { ...stdioConfig, decorateTool }
+    await expect(apply(ctx, config as never)).rejects.toThrow('decorateTool must be a function')
+    expect(mockConnect).not.toHaveBeenCalled()
+  })
+
   it('keeps the Cordis plugin loading until initial discovery publishes its tools', async () => {
     const connection: PromiseWithResolvers<void> = Promise.withResolvers()
     mockConnect.mockImplementation(async () => {

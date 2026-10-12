@@ -361,6 +361,49 @@ describe('syncTools', () => {
       await client.close()
     }
   })
+
+  it('applies a decorateTool adapter to every tool while sibling calls share the connection', async () => {
+    const client = createMockClient(
+      [{ name: 'echo', description: 'Say hello', inputSchema: { type: 'object', properties: { name: { type: 'string' } } } }],
+      { content: [{ type: 'text', text: 'adapted' }] },
+    )
+    const decorateTool: ToolBridgeOptions['decorateTool'] = (tool, callSibling) => ({
+      ...tool,
+      description: `Decorated: ${tool.description}`,
+      call: async (args, execution) => {
+        await callSibling('echo', { probe: true }, execution)
+        return tool.call({ ...args, wrapped: true }, execution)
+      },
+    })
+
+    await syncTools(client as never, ctx, { ...defaultOpts, decorateTool }, new Map())
+    expect(ctx.tools.get('mcp__srv__echo')?.description).toBe('Decorated: Say hello')
+
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c1'), name: 'mcp__srv__echo', arguments: { name: 'dsh' } })
+    expect(result.isError).toBe(false)
+    expect(result.content).toEqual([{ type: 'text', text: 'adapted' }])
+    expect(client.callTool).toHaveBeenCalledTimes(2)
+    // The sibling call and the forwarded call both use raw names on one connection with the same timeout.
+    expect(client.callTool).toHaveBeenNthCalledWith(1, { name: 'echo', arguments: { probe: true } }, expect.objectContaining({ timeout: 60_000 }))
+    expect(client.callTool).toHaveBeenNthCalledWith(2, { name: 'echo', arguments: { name: 'dsh', wrapped: true } }, expect.objectContaining({ timeout: 60_000 }))
+    const forwardOptions = client.callTool.mock.calls[1]![1] as { toolDefinition: { name: string } }
+    expect(forwardOptions.toolDefinition.name).toBe('echo')
+  })
+
+  it('keeps upstream definitions and calls verbatim when the decorator passes tools through', async () => {
+    const client = createMockClient(
+      [{ name: 'echo', description: 'Say hello', inputSchema: { type: 'object' } }],
+      { content: [{ type: 'text', text: 'ok' }] },
+    )
+    const decorateTool: ToolBridgeOptions['decorateTool'] = tool => tool
+
+    await syncTools(client as never, ctx, { ...defaultOpts, decorateTool }, new Map())
+    expect(ctx.tools.get('mcp__srv__echo')?.description).toBe('Say hello')
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c1'), name: 'mcp__srv__echo', arguments: { name: 'dsh' } })
+    expect(result.isError).toBe(false)
+    expect(client.callTool).toHaveBeenCalledTimes(1)
+    expect(client.callTool).toHaveBeenCalledWith({ name: 'echo', arguments: { name: 'dsh' } }, expect.anything())
+  })
 })
 
 describe('tool execution', () => {

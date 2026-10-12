@@ -24,6 +24,7 @@ import Projections from '@deepseek-ai/dsh-session-projection'
 import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import { bindScopeParent } from '@deepseek-ai/dsh-scope'
 import { BrowserMcpConfig, mountSessionMcp, validateBrowserMcpConfig } from '../src/mcp.ts'
+import type { McpToolDecorator } from '../src/mcp.ts'
 
 const fixture = fileURLToPath(new URL('./mcp-fixture.mjs', import.meta.url))
 const roots: string[] = []
@@ -70,6 +71,7 @@ async function load(
   toolCallTimeoutMs?: number,
   toolOrder?: string[],
   env?: () => Promise<Record<string, string>>,
+  decorateTool?: McpToolDecorator,
 ) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-browser-mcp-'))
   roots.push(root)
@@ -80,7 +82,12 @@ async function load(
     ['fs', LocalFileSystem], ['workingDirectory', WorkingDirectory],
     ['model', { inject: ['llm'], apply(ctx: Context) { ctx.effect(() => ctx.llm.registerAdapter(['fixture'], model)) } }],
     ['browser', { inject: ['browserUse', 'agents', 'tools', 'systemPrompt', 'workingDirectory'], apply(ctx: Context) {
-      mountSessionMcp(ctx, { name: 'browser-fixture', exclusive, command: process.execPath, args: [fixture, root, ...mode === undefined ? [] : [mode]], ...toolCallTimeoutMs === undefined ? {} : { toolCallTimeoutMs, env: {} }, ...env === undefined ? {} : { env } })
+      mountSessionMcp(ctx, {
+        name: 'browser-fixture', exclusive, command: process.execPath, args: [fixture, root, ...mode === undefined ? [] : [mode]],
+        ...toolCallTimeoutMs === undefined ? {} : { toolCallTimeoutMs, env: {} },
+        ...env === undefined ? {} : { env },
+        ...decorateTool === undefined ? {} : { decorateTool },
+      })
     } }],
   ])
   const configPath = join(root, 'cordis.yml')
@@ -598,6 +605,25 @@ describe('Session MCP Loader composition', () => {
     expect(ctx.tools.schemas(owner.agent).some(tool => tool.name === TOOL)).toBe(true)
     expect((await execute(ctx, owner.agent)).content).toEqual([{ type: 'text', text: 'Visit 1: direct' }])
     await owner.dispose()
+  })
+
+  it('applies the provider decorateTool adapter to model-facing definitions and forwarded calls', async () => {
+    const decorateTool: McpToolDecorator = (tool) => {
+      if (tool.rawName !== 'visit') return tool
+      return {
+        ...tool,
+        description: 'Decorated visit.',
+        call: async (args, execution) => tool.call({ ...args, label: `${String(args.label)}-decorated` }, execution),
+      }
+    }
+    const { ctx } = await load(false, undefined, undefined, undefined, undefined, decorateTool)
+    const owner = await ctx.agents.create({ sessionId: SessionId('decorated-browser') })
+    await warm(ctx, owner.agent)
+    const visit = ctx.tools.schemas(owner.agent).find(tool => tool.name === TOOL)!
+    expect(visit.description).toBe('Decorated visit.')
+    const untouched = ctx.tools.schemas(owner.agent).find(tool => tool.name === 'mcp__browser-fixture__disconnect')!
+    expect(untouched.description).toBe('Disconnect the fixture.')
+    expect((await execute(ctx, owner.agent)).content).toEqual([{ type: 'text', text: 'Visit 1: direct-decorated' }])
   })
 
   it('initializes only future activations after provider reload', async () => {
