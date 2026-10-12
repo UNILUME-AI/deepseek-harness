@@ -255,7 +255,7 @@ export default defineConfig({
         'packages/client/ui-conversation/src/client/*',
         // Chat presentation and assembly retain the same GUI debt exemption;
         // package wiring and the new approval-detail adapter remain gated.
-        'packages/client/ui-chat/src/client/chat/!(ApprovalCommand).{ts,tsx}',
+        'packages/client/ui-chat/src/client/chat/!(ApprovalCommand|ApprovalArgs).{ts,tsx}',
         'packages/client/ui-chat/src/client/conversation-nodes/*',
         'packages/client/ui-chat/src/client/details/*',
         'packages/client/ui-chat/src/client/model/*',

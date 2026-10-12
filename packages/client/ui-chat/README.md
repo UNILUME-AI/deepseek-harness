@@ -19,6 +19,7 @@ File-mention providers receive the viewed Session ID with the closing-turn owner
 - [Reference previews](#reference-previews)
 - [Hidden Chat rows](#system-prompt-row)
 - [Command and failure rows](#command-and-failure-rows)
+- [Approval argument detail](#approval-argument-detail)
 - [Turn token usage](#turn-token-usage)
 - [Completed-turn footer](#completed-turn-footer)
 - [Turn Process Folding](#turn-process-folding)
@@ -50,6 +51,13 @@ When an Assistant attempt retires without a visible message, Chat hides its alre
 ## Command and failure rows
 
 Generic command rows retain the ordinary command glyph in every lifecycle state; failure remains explicit through the row state and summary. Every terminal Turn failure renders its inline red-dot row; a quota failure's row states the neutral `message.failure.quota` copy instead of the provider message. The transient notice for a newly appended `QUOTA` or `ACCOUNT_QUOTA` comes from this package's frame-wide entry in `shell.overlay`, which outlives the Chat panel: it offers the one live notice to the `shell.quota-notice` chain and falls back to its own warning Toast, while an entry that claims the code replaces that fallback. Only Sessions this Client has bound and materialized publish; quota failures in Sessions it never opened do not. A newer notice replaces the current one unless a claiming entry retains it with `keepOpen()`: that call returns a release the caller owns and must run on unmount, any live hold keeps the claiming entry mounted and drops later notices, and releasing resumes later notices without replaying the dropped ones. The fallback Toast has no deferral of its own: while the Desktop account's opaque native Platform page covers the document, it still runs underneath and its display timer may elapse unseen, dismissing the notice itself, so only the persistent failure row remains. A release drops only its own hold, so one that runs after a dismissal or a newer hold leaves that newer hold intact. Dismissal and sign-out clear every hold, and dropped notices are not queued while their persistent failure rows still render. History replacement and pagination never publish a notice. Intermediate retries do not create a terminal row; output-token limits use the amber warning dot.
+
+-----
+
+<a id="approval-argument-detail"></a>
+## Approval argument detail
+
+An approval whose correlated Tool call carries a string `command` shows that command and nothing else. Otherwise non-empty JSON-object arguments render structurally in argument order: top-level scalars as `key: value` lines, scalar arrays joined inline, and object arrays as a horizontally scrollable table whose columns are the union of the shown rows' keys in first-seen order — cells of absent keys stay empty, scalar-array cells join inline, and nested values render as compact JSON. Display bounds: each displayed value, field name, and column name is cut at 200 code points with an ellipsis; a table renders at most 50 rows and 20 columns, a scalar array joins at most 50 items, and at most 50 top-level fields appear. Cut rows, columns, array items, and fields report the omitted count (the English notice copy is singular or plural by count); a cut string or nested JSON only gets an ellipsis. Nested compact JSON stops serializing at 2,000 characters instead of materializing the full text first. Malformed, non-object, and empty arguments render nothing.
 
 -----
 

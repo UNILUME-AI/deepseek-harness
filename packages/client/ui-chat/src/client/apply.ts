@@ -288,6 +288,6 @@ export function apply(ctx: Context): void {
     }, StatsPills))
 
   ctx.slots.inject('conversation.approval.detail', () =>
-    ctx.slots.register({ name: 'conversation.approval.detail' }, ApprovalCommand))
+    ctx.slots.register({ name: 'conversation.approval.detail', locale: NS }, ApprovalCommand))
 
 }

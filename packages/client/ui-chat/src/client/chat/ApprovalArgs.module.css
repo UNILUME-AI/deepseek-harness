@@ -1,0 +1,63 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.line {
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.fieldName {
+  color: var(--dsw-alias-label-secondary);
+  font-weight: 500;
+}
+
+.pairSeparator {
+  white-space: pre;
+}
+
+.value {
+  min-width: 0;
+}
+
+.tableBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tableScroll {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md);
+}
+
+.table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font: inherit;
+  text-align: left;
+}
+
+.table th,
+.table td {
+  padding: 4px 12px;
+  vertical-align: top;
+}
+
+.table th {
+  color: var(--dsw-alias-label-secondary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.omitted {
+  color: var(--dsw-alias-label-caption);
+}
