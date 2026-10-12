@@ -1,5 +1,5 @@
 /** Assemble Electron navigation and presentation behind the shared BrowserPage interface. */
-import type { DesktopBrowserBridge } from '../../types.ts'
+import type { DesktopBrowserBridge, DesktopCredentialsBridge } from '../../types.ts'
 import type { BrowserPage, BrowserPageOptions } from '../browser/BrowserPage.ts'
 import { ElectronWebViewImpl } from './ElectronWebViewImpl.ts'
 import { ElectronWebviewPresentation } from './ElectronWebviewPresentation.ts'
@@ -9,14 +9,15 @@ import { ElectronWebviewPresentation } from './ElectronWebviewPresentation.ts'
  * @param options - checkpoint and source-tab callbacks.
  * @param bridge - desktop-only transport.
  * @param workspace - storage account resolver.
+ * @param credentials - optional desktop credential operations.
  * @returns separate navigation and presentation faces.
  */
 export function createElectronPage(options: BrowserPageOptions, bridge: DesktopBrowserBridge,
-  workspace: (signal: AbortSignal) => Promise<string>): BrowserPage {
+  workspace: (signal: AbortSignal) => Promise<string>, credentials?: DesktopCredentialsBridge): BrowserPage {
   const presentation = new ElectronWebviewPresentation({
     mounted: () => { frame.attach() },
     unmounted: () => { frame.detach() },
   })
   const frame = new ElectronWebViewImpl(options, bridge, workspace, presentation)
-  return { frame, presentation }
+  return { frame, presentation, ...(credentials === undefined ? {} : { credentials: frame.credentials(credentials) }) }
 }

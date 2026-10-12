@@ -46,6 +46,17 @@ The `browser.new` command opens a separate Browser page in the focused dock pane
 
 The toolbar provides Back, Forward, Reload, Go, and Open in system browser. Web also offers a per-tab sandbox toggle; disabling it is temporary and displays an amber warning with neutral text. Desktop shows the observed page title. After a restart, Browser shows the saved title and URL; Restore or Reload opens that address only when requested.
 
+<a id="desktop-credentials"></a>
+### Desktop credentials
+
+On Desktop, **Credentials** lists entries matching the current page origin. Choose **Fill username and password** or **Fill verification code**. **Manage credentials** adds and deletes entries for any HTTP(S) site. Password and optional base32 TOTP key or `otpauth://totp/` URI inputs clear immediately after the save request. The Web iframe has no credential controls.
+
+Electron’s main process stores `credential-vault.json` under `app.getPath('userData')`. The system keyring protects password and TOTP ciphertext through `safeStorage`; site, name, username and the TOTP-presence flag remain readable metadata. Writes require encryption and use a same-directory temporary file created with mode 0600 before atomic replacement. Unreadable or malformed files reject operations and remain untouched; this includes experimental files missing the TOTP-presence flag. Restore a valid backup before retrying.
+
+Every fill requires a main-window approval dialog naming the site, entry and fields. On macOS, available Touch ID is required after approval. The main process checks the exact normalized origin before approval and again before injection; the isolated-world script also checks the document origin. Secrets are decrypted only after approval, enter the guest only for filling, and never return through IPC, enter the model or get logged. Initial entry necessarily exists briefly in the local form and add IPC.
+
+Filling affects visible inputs in the top-level document and dispatches input/change events without submitting. It does not traverse iframes or shadow roots, and unusual or segmented forms may require manual entry. Once filled, the target site can read the values. TOTP accepts SHA1/SHA256/SHA512, 6–8 digits and a positive integer period. This feature provides no model tool, persistent site sessions, external password-manager integration or SMS forwarding. Native approval and keyring behavior require verification on the target operating system.
+
 -----
 
 <a id="understand-the-implementation"></a>

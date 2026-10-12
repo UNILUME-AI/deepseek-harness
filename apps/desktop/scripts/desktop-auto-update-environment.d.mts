@@ -1,6 +1,9 @@
 /** Environment variable that selects the Desktop update deployment. */
 export const DESKTOP_AUTO_UPDATE_ENV: 'DSH_DESKTOP_AUTO_UPDATE_ENV'
 
+/** Optional production update origin; omitted values use the upstream origin. */
+export const DESKTOP_UPDATE_ORIGIN_ENV: 'DSH_DESKTOP_UPDATE_ORIGIN'
+
 /** Supported Desktop update deployment. */
 export type DesktopAutoUpdateEnvironment = 'test' | 'production'
 

@@ -254,3 +254,26 @@ it('forwards browser guest input only for the focused live webview lease', async
   expect(listener).toHaveBeenCalledOnce()
   off()
 })
+
+it('exposes only metadata and user-initiated credential operations on the application document', async () => {
+  vi.stubGlobal('location', new URL('dsh-app://app/index.html'))
+  await import('../src/preload-app.ts')
+  const api = electron.contextBridge.exposeInMainWorld.mock.calls.find(([name]) => name === 'dshDesktop')?.[1] as DshDesktopProductApi
+  const id = '00000000-0000-4000-8000-000000000001' as import('@deepseek-ai/dsh-client-ui-sidebar-browser/types').CredentialId
+  const lease = '00000000-0000-4000-8000-000000000002' as import('@deepseek-ai/dsh-client-ui-sidebar-browser/types').DesktopBrowserLeaseId
+  const metadata = { id, origin: 'https://example.com', label: 'Seller', username: 'alice', hasTotp: false }
+  electron.ipcRenderer.invoke.mockResolvedValueOnce([metadata])
+  expect(await api.credentials.list('https://example.com')).toEqual([metadata])
+  electron.ipcRenderer.invoke.mockResolvedValueOnce(id)
+  expect(await api.credentials.add('https://example.com', 'Seller', 'alice', 'synthetic-password')).toBe(id)
+  await api.credentials.remove(id)
+  electron.ipcRenderer.invoke.mockResolvedValueOnce({ filled: ['password'], notFound: [] })
+  expect(await api.credentials.fill({ lease, credentialId: id, fields: ['password'] })).toEqual({ filled: ['password'], notFound: [] })
+  expect(electron.ipcRenderer.invoke.mock.calls).toEqual([
+    [DESKTOP_IPC.credentialsList, 'https://example.com'],
+    [DESKTOP_IPC.credentialsAdd, 'https://example.com', 'Seller', 'alice', 'synthetic-password', undefined],
+    [DESKTOP_IPC.credentialsRemove, id],
+    [DESKTOP_IPC.credentialsFill, { lease, credentialId: id, fields: ['password'] }],
+  ])
+  expect(Object.keys(api.credentials).sort()).toEqual(['add', 'fill', 'list', 'remove'])
+})

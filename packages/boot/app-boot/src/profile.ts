@@ -354,6 +354,125 @@ function readPackageManifest(anchor: string): ProfileManifest {
   return JSON.parse(readFileSync(anchor, 'utf8')) as ProfileManifest
 }
 
+/** Package name of the prepared Desktop runtime project that carries `@deepseek-ai/dsh` in its `node_modules`. */
+const DESKTOP_RUNTIME_PACKAGE = '@deepseek-ai/dsh-desktop-runtime'
+
+/** Package-name index that Desktop packaging writes into `<runtimeRoot>/local-packs/`, also when it lists no package. */
+const LOCAL_PACKS_INDEX = '.packages.json'
+
+/** Local pack package metadata available to the installation resolver. */
+interface LocalPackPackage {
+  name: string
+  packageDir: string
+  manifestPath: string
+  manifest: ProfileManifest
+}
+
+/** One of the two fixed local-packs locations of a dsh installation. */
+interface LocalPacksLocation {
+  /** `source` scans package directories; `runtime` reads the packaged name index. */
+  kind: 'source' | 'runtime'
+  /** Absolute `local-packs` directory. */
+  root: string
+}
+
+/**
+ * Locate the local-packs directory of one dsh installation. A source checkout uses `local-packs/` beside the
+ * nearest `pnpm-workspace.yaml` above the real anchor and never searches above it; an installation under
+ * `node_modules` uses `<runtimeRoot>/local-packs/` only when `<runtimeRoot>` is the prepared Desktop runtime
+ * project, and has no local packs otherwise.
+ */
+function locateLocalPacks(installAnchor: string): LocalPacksLocation | undefined {
+  const anchorDir = realModuleDirectory(dirname(installAnchor))
+  const segments = anchorDir.split(sep)
+  const modulesIndex = segments.lastIndexOf('node_modules')
+  if (modulesIndex !== -1) {
+    const runtimeRoot = segments.slice(0, modulesIndex).join(sep)
+    const manifestPath = join(runtimeRoot, 'package.json')
+    if (!existsSync(manifestPath) || readPackageManifest(manifestPath).name !== DESKTOP_RUNTIME_PACKAGE) return undefined
+    return { kind: 'runtime', root: join(runtimeRoot, 'local-packs') }
+  }
+  for (let directory = anchorDir; ; directory = dirname(directory)) {
+    if (existsSync(join(directory, 'pnpm-workspace.yaml'))) return { kind: 'source', root: join(directory, 'local-packs') }
+    if (dirname(directory) === directory) return undefined
+  }
+}
+
+/**
+ * Read local packs from a source checkout's package directories or a prepared Desktop runtime's name index.
+ * Source scanning applies the rules of `discoverLocalPacks` in `scripts/local-packs.ts`, which the root build runs
+ * before workspace packages are built and therefore cannot import from this package.
+ */
+function localPackPackages(location: LocalPacksLocation | undefined, installAnchor: string): LocalPackPackage[] {
+  if (location === undefined) return []
+  if (location.kind === 'runtime') {
+    const indexPath = join(location.root, LOCAL_PACKS_INDEX)
+    if (!existsSync(indexPath)) throw new Error(`dsh local packs: prepared Desktop runtime has no ${indexPath}`)
+    const value: unknown = JSON.parse(readFileSync(indexPath, 'utf8'))
+    if (!Array.isArray(value) || value.some(name => typeof name !== 'string' || name === '')) {
+      throw new Error(`dsh local packs: ${indexPath} must contain a package-name array`)
+    }
+    const names = value as string[]
+    if (new Set(names).size !== names.length) throw new Error(`dsh local packs: ${indexPath} contains duplicate package names`)
+    return names.map((name) => {
+      const packageDir = packageDirFromAnchor(installAnchor, name)
+      if (packageDir === undefined) throw new Error(`dsh local packs: ${name} is absent from the prepared runtime`)
+      const manifestPath = join(realModuleDirectory(packageDir), 'package.json')
+      const manifest = readPackageManifest(manifestPath)
+      if (manifest.name !== name) throw new Error(`dsh local packs: installed manifest does not match ${name}`)
+      return { name, packageDir, manifestPath, manifest }
+    })
+  }
+  if (!existsSync(location.root)) return []
+  if (!statSync(location.root).isDirectory()) throw new Error(`dsh local packs: ${location.root} is not a directory`)
+  const packs: LocalPackPackage[] = []
+  const entries = readdirSync(location.root, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .sort((left, right) => left.name.localeCompare(right.name))
+  for (const entry of entries) {
+    const packageDir = join(location.root, entry.name)
+    const manifestPath = join(packageDir, 'package.json')
+    if (!existsSync(manifestPath)) throw new Error(`dsh local packs: ${packageDir} has no package.json`)
+    const manifest = readPackageManifest(manifestPath)
+    if (typeof manifest.name !== 'string' || manifest.name === '') {
+      throw new Error(`dsh local packs: ${manifestPath} must declare a package name`)
+    }
+    if (packs.some(pack => pack.name === manifest.name)) throw new Error(`dsh local packs: duplicate package name ${manifest.name}`)
+    packs.push({ name: manifest.name, packageDir, manifestPath, manifest })
+  }
+  return packs
+}
+
+/** The optional patch filename owned by each shipped bundle that accepts a local overlay. */
+function localPatchFilename(packageName: string): string | undefined {
+  switch (packageName) {
+    case '@deepseek-ai/dsh-base': return 'base.patch.yml'
+    case '@deepseek-ai/dsh-web-app': return 'bundle.patch.yml'
+    default: return undefined
+  }
+}
+
+/** Add one existing local patch immediately after its bundle's main patch file. */
+function appendLocalPatch(
+  packageName: string,
+  packageDir: string,
+  bundle: DshBundleManifest,
+  location: LocalPacksLocation | undefined,
+): string[] {
+  const patchPaths = bundlePatchPaths(packageDir, bundle)
+  const file = localPatchFilename(packageName)
+  if (file === undefined || location === undefined) return patchPaths
+  const localPath = join(location.root, file)
+  if (!existsSync(localPath)) return patchPaths
+  const mainPath = join(packageDir, 'cordis.patch.yml')
+  const mainIndex = patchPaths.indexOf(mainPath)
+  if (mainIndex === -1) {
+    throw new Error(`dsh local packs: ${packageName} does not declare ./cordis.patch.yml in dsh.bundle.patch`)
+  }
+  patchPaths.splice(mainIndex + 1, 0, localPath)
+  return patchPaths
+}
+
 /** Return dependency names that may be imported by a loader-visible plugin. */
 function profileDependencyNames(manifest: ProfileManifest): string[] {
   return [...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.peerDependencies ?? {})]
@@ -385,31 +504,43 @@ function collectInstallationScopePackages(
   // BFS over the resolvable dependency graph; the visited set is the link
   // map itself (first resolution wins, matching Node's own nearest-wins).
   const queue: { anchor: string; manifest: ProfileManifest }[] = [{ anchor: canonicalAnchor, manifest: appManifest }]
-  for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
-    // Peer dependencies participate: Service Definition packages (dsh-subprocess,
-    // dsh-compaction, ...) are peers of their implementations, never plain
-    // dependencies, yet out-of-tree plugins import them directly.
-    /* v8 ignore next -- a real app manifest always declares dependencies */
-    for (const dep of profileDependencyNames(next.manifest)) {
-      if (links.has(dep)) continue
-      const dir = packageDirFromAnchor(next.anchor, dep)
-      // A declared-but-uninstalled dependency cannot be a loader-visible
-      // plugin; skip it rather than fail the whole boot.
-      if (dir === undefined) continue
-      const manifestPath = join(realModuleDirectory(dir), 'package.json')
-      let manifest: ProfileManifest
-      try {
-        manifest = skippedBundles.has(dep) ? readProfileManifest('dsh', dir) : readPackageManifest(manifestPath)
-      } catch (error) {
-        if (!skippedBundles.has(dep)) throw error
-        continue
+  const drain = (): void => {
+    for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+      // Peer dependencies participate: Service Definition packages (dsh-subprocess,
+      // dsh-compaction, ...) are peers of their implementations, never plain
+      // dependencies, yet out-of-tree plugins import them directly.
+      /* v8 ignore next -- a real app manifest always declares dependencies */
+      for (const dep of profileDependencyNames(next.manifest)) {
+        if (links.has(dep)) continue
+        const dir = packageDirFromAnchor(next.anchor, dep)
+        // A declared-but-uninstalled dependency cannot be a loader-visible
+        // plugin; skip it rather than fail the whole boot.
+        if (dir === undefined) continue
+        const manifestPath = join(realModuleDirectory(dir), 'package.json')
+        let manifest: ProfileManifest
+        try {
+          manifest = skippedBundles.has(dep) ? readProfileManifest('dsh', dir) : readPackageManifest(manifestPath)
+        } catch (error) {
+          if (!skippedBundles.has(dep)) throw error
+          continue
+        }
+        links.set(dep, dir)
+        declarers.set(dep, next.anchor)
+        versions.set(dep, manifest.version)
+        queue.push({ anchor: manifestPath, manifest })
       }
-      links.set(dep, dir)
-      declarers.set(dep, next.anchor)
-      versions.set(dep, manifest.version)
-      queue.push({ anchor: manifestPath, manifest })
     }
   }
+  drain()
+  // Local packs join after the installation closure, so a name the installation already supplies fails instead of being shadowed.
+  for (const pack of localPackPackages(locateLocalPacks(installAnchor), installAnchor)) {
+    if (links.has(pack.name)) throw new Error(`dsh local packs: package ${pack.name} conflicts with the installation`)
+    links.set(pack.name, pack.packageDir)
+    declarers.set(pack.name, pack.manifestPath)
+    versions.set(pack.name, pack.manifest.version)
+    queue.push({ anchor: pack.manifestPath, manifest: pack.manifest })
+  }
+  drain()
   return { packageNames: new Set(links.keys()), packageDirs: links, declarers, versions }
 }
 
@@ -662,6 +793,7 @@ export function loadProfileDirectory(
   const bundles = manifest.dsh?.profile?.bundles ?? []
   const layers: ProfileLayer[] = []
   const skippedBundles: SkippedBundle[] = []
+  const localPacks = locateLocalPacks(installAnchor)
   const exemptions = bundles.length === 0 ? {} : readProfileVersionExemptions(dir)
   for (const packageName of bundles) {
     try {
@@ -674,7 +806,7 @@ export function loadProfileDirectory(
       // A bundle is not a plugin row, so row admission never reads its own peers.
       const issue = evaluatePluginCompatibility(bundleManifest, exemptions)
       if (issue !== undefined && !issue.exempted) throw new Error(pluginCompatibilityWarning(issue))
-      const patchPaths = bundlePatchPaths(packageDir, bundle)
+      const patchPaths = appendLocalPatch(packageName, packageDir, bundle, localPacks)
       const patches = patchPaths.flatMap(patchPath => loadOverlayPatches(binName, patchPath))
       layers.push({ packageName, packageDir, patchPaths, patches })
     } catch (error) {

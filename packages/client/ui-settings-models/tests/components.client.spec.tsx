@@ -283,6 +283,28 @@ function cardSeatCalls(
     ])
 }
 
+/** Provider-card seat calls from the most recently completed section render. */
+function latestCardSeatCalls(
+  renderSlot: ReturnType<typeof stubRenderSlot>,
+): Array<[string, boolean, boolean, string | undefined]> {
+  let previousFooter = -1
+  let finalFooter = -1
+  for (let index = 0; index < renderSlot.mock.calls.length; index += 1) {
+    if (renderSlot.mock.calls[index]?.[0] !== 'settings.models.footer') continue
+    previousFooter = finalFooter
+    finalFooter = index
+  }
+  return renderSlot.mock.calls
+    .slice(previousFooter + 1, finalFooter)
+    .filter(call => call[0] === 'settings.models.provider-card')
+    .map(call => [
+      (call[1] as { provider: { provider: string } }).provider.provider,
+      (call[1] as { configured: boolean }).configured,
+      (call[1] as { keyConfigured: boolean }).keyConfigured,
+      call[2]?.entryKey,
+    ])
+}
+
 async function mountFace(scripted: ReturnType<typeof scriptedFace>) {
   const { face, update, mutate, set, unset } = scripted
   const ctx = ctxWith(face)
@@ -444,7 +466,12 @@ describe('ModelsSection', () => {
     await act(async () => { await controller.load() })
     // The draft card is still open while its row is gone from the directory.
     expect(screen.getByLabelText(en.keyInput)).toBeTruthy()
-    expect(cardSeatCalls(renderSlot).some(([provider]) => provider === 'anthropic')).toBe(false)
+    // React 19 may commit the retained rows while the store refresh is in
+    // flight. The seat's final completed render, rather than that historical
+    // loading pass, is the observable page state after `load()` resolves.
+    await waitFor(() => {
+      expect(latestCardSeatCalls(renderSlot).some(([provider]) => provider === 'anthropic')).toBe(false)
+    })
   })
   it('renders the unkeyed whole-section provider as an open setup card in the first-run posture', async () => {
     await mountFirstRun()

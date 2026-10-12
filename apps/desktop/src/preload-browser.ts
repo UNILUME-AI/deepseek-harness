@@ -1,6 +1,6 @@
 /** Lease-scoped browser operations and one main-process event subscription per window. */
 import { ipcRenderer } from 'electron'
-import type { DesktopBrowserBridge, DesktopBrowserLeaseId } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
+import type { CredentialEntry, CredentialId, DesktopCredentialsBridge, DesktopBrowserBridge, DesktopBrowserLeaseId, CredentialFillResult } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
 import { DESKTOP_IPC } from './ipc.ts'
 
 /** @returns browser operations that expose neither IPC nor Electron objects. */
@@ -28,5 +28,16 @@ export function createDesktopBrowserBridge(): DesktopBrowserBridge {
         if (callbacks.size === 0 && listeners.get(lease) === callbacks) listeners.delete(lease)
       }
     },
+  }
+}
+
+/** @returns metadata and user-initiated credential operations without raw IPC access. */
+export function createDesktopCredentialsBridge(): DesktopCredentialsBridge {
+  return {
+    list: (origin?: string) => ipcRenderer.invoke(DESKTOP_IPC.credentialsList, origin) as Promise<CredentialEntry[]>,
+    add: (origin, label, username, password, totpSecret) =>
+      ipcRenderer.invoke(DESKTOP_IPC.credentialsAdd, origin, label, username, password, totpSecret) as Promise<CredentialId>,
+    remove: id => ipcRenderer.invoke(DESKTOP_IPC.credentialsRemove, id) as Promise<void>,
+    fill: request => ipcRenderer.invoke(DESKTOP_IPC.credentialsFill, request) as Promise<CredentialFillResult>,
   }
 }

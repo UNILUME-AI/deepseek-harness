@@ -66,6 +66,8 @@ profile 导入插件前，DSH 会检查其 `peerDependencies` 中对 `@deepseek-
 
 挂载 profile 条目前，`dsh` launcher 会从安装依赖图与有序 bundle 依赖图计算一份不可变的 runtime resolution。普通 Node、打包可执行文件与 Electron Host 等所有 profile 启动器都使用 runtime 解析，将 runtime resolution 安装到 Node 的 ESM 与 CommonJS 解析器中，不创建 fallback 链接。
 
+安装还会从两个固定位置之一读取 [local packs](../../../apps/desktop/README.zh.md#local-packs)。源码检出使用真实安装锚点之上最近的 `pnpm-workspace.yaml` 旁的 `local-packs/`，并扫描其中的包目录。已准备好的 Desktop runtime（其 `node_modules` 包含该锚点的 `@deepseek-ai/dsh-desktop-runtime` 项目）使用 `<runtimeRoot>/local-packs/.packages.json`；索引缺失或无效时解析失败。其他位于 `node_modules` 下的安装没有本地包。`loadProfileDirectory` 把 `local-packs/base.patch.yml` 和 `local-packs/bundle.patch.yml` 分别插在 `@deepseek-ai/dsh-base` 与 `@deepseek-ai/dsh-web-app` 的 `./cordis.patch.yml` 之后；组合包未声明该文件时会被跳过。runtime resolution 在安装依赖图之后把本地包加入为 installation 作用域条目，因此与安装已提供的包同名的本地包会使启动失败。
+
 `sanitizeProfile(binName, profileDir, bundles)` 提供文件恢复，无需加载插件或解析 patch。Desktop 在原生致命错误恢复中调用它。调用前必须停止 profile 并排除并发 profile 写入。它将 profile 的 `cordis.patch.yml` 重命名为带唯一 `.bak-<timestamp>` 后缀的同目录备份，并恢复调用方指定的 bundle 列表，保留已安装包和其他 manifest 字段。时间戳为 Unix 毫秒数；同名备份已存在时追加序号（`-1`、`-2`、……），时间戳保持不变。返回值为备份路径；patch 不存在时返回 `undefined`，缺失的 profile 不会被创建。下次启动的 profile 初始化会重新创建空 patch。home 级 patch 不变。无效 profile JSON 在修改前报错；后续错误向调用方抛出，保留已完成的修改供重试。
 
 ### 预览生效配置

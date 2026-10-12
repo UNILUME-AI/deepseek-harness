@@ -187,11 +187,11 @@ it.each(['signed-out', 'unloaded'] as const)('uses a timed Toast without the sha
   expect(screen.queryByRole('alert')).toBeNull()
 })
 
-it.each([en, zh])('takes the balance Modal down when the account signs out', (copy) => {
+it.each([en, zh])('takes the balance Modal down when the account signs out', async (copy) => {
   const spies = pageSpies()
   const { dismiss, setStatus } = mount({ pages: spies.pages, copy })
   expect(screen.getByRole('dialog', { name: copy.quotaTitle })).toBeTruthy()
-  act(() => { setStatus('signed-out') })
+  await act(async () => { setStatus('signed-out') })
   expect(dismiss).toHaveBeenCalledOnce()
   expect(screen.queryByRole('dialog')).toBeNull()
   expect(screen.queryByRole('alert')).toBeNull()
@@ -203,7 +203,7 @@ it('releases the shared page and its hold when the account signs out mid-page', 
   const { dismiss, releaseHold, setStatus } = mount({ pages: spies.pages })
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: en.quotaTopUp })) })
   expect(spies.pages.getSnapshot()).toEqual({ page: 'top-up' })
-  act(() => { setStatus('signed-out') })
+  await act(async () => { setStatus('signed-out') })
   expect(dismiss).toHaveBeenCalledOnce()
   expect(spies.pages.getSnapshot()).toBeNull()
   expect(releaseHold).toHaveBeenCalledOnce()

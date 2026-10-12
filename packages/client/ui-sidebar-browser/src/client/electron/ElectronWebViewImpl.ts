@@ -1,6 +1,6 @@
 /** Electron navigation and guest lifetime, independent from DOM placement. */
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { DesktopBrowserBridge, DesktopBrowserLeaseId } from '../../types.ts'
+import type { DesktopBrowserBridge, DesktopBrowserLeaseId, DesktopCredentialsBridge, BrowserCredentials } from '../../types.ts'
 import type { ElectronWebviewPresentation, WebviewElement } from './ElectronWebviewPresentation.ts'
 import { emptyBrowserFrame, type BrowserFrame, type BrowserFrameState, type BrowserLoadError } from '../browser/BrowserFrame.ts'
 import type { BrowserPageOptions } from '../browser/BrowserPage.ts'
@@ -42,6 +42,19 @@ export class ElectronWebViewImpl implements BrowserFrame {
     private readonly presentation: ElectronWebviewPresentation) {
     this.checkpoint = currentBrowserTarget(options.initial)
     this.store = createSnapshotStore(emptyBrowserFrame())
+  }
+
+  /** @param bridge - desktop credential IPC. @returns callbacks that resolve the current lease at the user gesture. */
+  credentials(bridge: DesktopCredentialsBridge): BrowserCredentials {
+    return {
+      list: origin => bridge.list(origin),
+      add: (origin, label, username, password, totpSecret) => bridge.add(origin, label, username, password, totpSecret),
+      remove: id => bridge.remove(id),
+      fill: async (credentialId, fields) => {
+        if (!this.ready || this.lease === undefined || this.lifetime.signal.aborted) throw new Error('Guest not available')
+        return bridge.fill({ lease: this.lease, credentialId, fields })
+      },
+    }
   }
 
   /** @returns immutable carrier-neutral navigation state. */

@@ -53,6 +53,7 @@ describe('Desktop local packaging configuration', () => {
       await writeFile(join(directory, '.env.macos'), 'DSH_DESKTOP_APP_ID=com.example.mac\nAPPLE_KEYCHAIN_PROFILE=release\nCSC_LINK=keys/signing.p12\nCSC_KEY_PASSWORD=" # literal "\n')
       const parent = {
         PATH: 'build-tools', DSH_DESKTOP_APP_ID: 'com.stale.desktop',
+        DSH_DESKTOP_UPDATE_ORIGIN: 'https://stale.example.com',
         DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: '{"origin":"https://stale.example.com"}',
         dsh_desktop_mandatory_update_config: 'stale-policy',
         DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN: 'https://stale.example.com',
@@ -73,6 +74,15 @@ describe('Desktop local packaging configuration', () => {
       })
       expect(parent.DSH_DESKTOP_WINDOWS_TOKEN_PIN).toBe('stale-pin')
       expect(parent.dsh_desktop_mandatory_update_config).toBe('stale-policy')
+    })
+  })
+
+  it('reads a production update origin from the platform dotenv file only', async () => {
+    await withDirectory(async (directory) => {
+      await writeFile(join(directory, '.env.macos'), 'DSH_DESKTOP_UPDATE_ORIGIN=https://updates.example.com\n')
+      expect(loadDesktopPackageEnvironment('darwin', {
+        DSH_DESKTOP_UPDATE_ORIGIN: 'https://stale.example.com',
+      }, directory)).toEqual({ DSH_DESKTOP_UPDATE_ORIGIN: 'https://updates.example.com' })
     })
   })
 

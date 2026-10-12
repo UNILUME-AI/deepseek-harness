@@ -78,6 +78,20 @@ describe('desktop auto-update environment', () => {
     })
   })
 
+  it('uses the upstream production origin by default and accepts a packaging override', () => {
+    expect(resolveDesktopAutoUpdateConfig({
+      DSH_DESKTOP_AUTO_UPDATE_ENV: 'production',
+    }, 'darwin', 'arm64').origin).toBe('https://download.deepseek.com')
+    expect(resolveDesktopAutoUpdateConfig({
+      DSH_DESKTOP_AUTO_UPDATE_ENV: 'production',
+      DSH_DESKTOP_UPDATE_ORIGIN: 'https://updates.example.com/',
+    }, 'darwin', 'arm64').publicUrl).toBe('https://updates.example.com/dsh-desk/feeds/mac-arm64/')
+    expect(() => resolveDesktopAutoUpdateConfig({
+      DSH_DESKTOP_AUTO_UPDATE_ENV: 'production',
+      DSH_DESKTOP_UPDATE_ORIGIN: 'http://updates.example.com',
+    }, 'darwin', 'arm64')).toThrow(/HTTPS origin/u)
+  })
+
   it('requires the selected deployment origin for packages and bucket only for uploads', () => {
     expect(() => resolveDesktopAutoUpdateConfig({}, 'darwin', 'arm64'))
       .toThrow(/DOWNLOAD_TEST_ORIGIN/u)

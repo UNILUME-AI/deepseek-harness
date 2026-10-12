@@ -16,6 +16,34 @@ export interface DesktopBrowserOpenRequest {
   readonly url: string
 }
 
+/** Main-issued credential identity. */
+export type CredentialId = Branded<'CredentialId'>
+
+/** Credential metadata exposed to UI. */
+export interface CredentialEntry {
+  readonly id: CredentialId
+  readonly origin: string
+  readonly label: string
+  readonly username: string
+  readonly hasTotp: boolean
+}
+
+/** Credential fill request scoped to guest and approved fields. */
+export type FillFieldType = 'username' | 'password' | 'totp'
+
+/** User-selected fields for a main-owned browser lease. */
+export interface CredentialFillRequest {
+  readonly lease: DesktopBrowserLeaseId
+  readonly credentialId: CredentialId
+  readonly fields: readonly FillFieldType[]
+}
+
+/** Field names only; values never leave the main process via IPC. */
+export interface CredentialFillResult {
+  readonly filled: FillFieldType[]
+  readonly notFound: FillFieldType[]
+}
+
 /** Origin-scoped operations; no Electron objects or arbitrary IPC cross this interface. */
 export interface DesktopBrowserBridge {
   /** @param workspace - resolved storage account. @returns one approved guest reservation. */
@@ -24,4 +52,26 @@ export interface DesktopBrowserBridge {
   release(lease: DesktopBrowserLeaseId): Promise<void>
   /** @param lease - originating guest. @param listener - approved URL consumer. @returns unsubscribe callback. */
   onOpenRequested(lease: DesktopBrowserLeaseId, listener: (url: string) => void): () => void
+}
+
+/** Desktop-only credential operations, unavailable to guest pages and the Web iframe. */
+export interface DesktopCredentialsBridge {
+  /** @param origin - optional HTTP(S) filter. @returns metadata without decrypting secrets. */
+  list(origin?: string): Promise<CredentialEntry[]>
+  /**
+   * @param origin - HTTP(S) site. @param label - display name. @param username - login name.
+   * @param password - encrypted once received. @param totpSecret - optional base32 or otpauth value.
+   * @returns saved entry ID; rejects when system encryption is unavailable.
+   */
+  add(origin: string, label: string, username: string, password: string, totpSecret?: string): Promise<CredentialId>
+  /** @param id - entry to delete. @returns after persistence. */
+  remove(id: CredentialId): Promise<void>
+  /** @param request - lease, entry and fields. @returns field names after native approval; never submits the form. */
+  fill(request: CredentialFillRequest): Promise<CredentialFillResult>
+}
+
+/** UI operations bound to a live browser provider; the provider supplies its own lease. */
+export interface BrowserCredentials extends Omit<DesktopCredentialsBridge, 'fill'> {
+  /** @param id - entry to fill. @param fields - user selection. @returns names filled or not found. */
+  fill(id: CredentialId, fields: readonly FillFieldType[]): Promise<CredentialFillResult>
 }
