@@ -229,6 +229,14 @@
   background: var(--dsw-alias-state-warn-tertiary);
 }
 
+.notice {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xxxs-11);
+  background: var(--dsw-alias-bg-layer-2);
+}
+
 .limit {
   flex: 0 0 auto;
   margin: 0;

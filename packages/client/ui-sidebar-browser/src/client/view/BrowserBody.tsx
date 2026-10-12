@@ -5,9 +5,11 @@ import {
   Button,
   IconChevronLeftOutlineRegular,
   IconChevronRightOutlineRegular,
+  IconEllipsisOutlineMedium,
   IconLinkOutlineRegular,
   IconRefreshOutlineRegular, Tooltip,
   IconRightUpOutlineRegular,
+  Menu,
   SHIELD_OUTLINE_PATH,
   ICON_REGULAR_STROKE,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -20,6 +22,12 @@ import { CredentialControls } from './CredentialControls.tsx'
 import css from './Browser.module.css'
 
 const EMPTY_FRAME = emptyBrowserFrame()
+
+/** Outcome of the last site sign-in clearing action; `site` names the cleared partition's site. */
+type ClearNotice = { readonly kind: 'site'; readonly site: string } | { readonly kind: 'all' | 'failed' }
+
+/** Clearing notices disappear after this many milliseconds. */
+const CLEAR_NOTICE_MS = 5000
 
 function SandboxPolicyIcon({ sandboxed }: { readonly sandboxed: boolean }): ReactNode {
   return (
@@ -37,6 +45,27 @@ export type BrowserBodyProps = PropsRuntime<'sidebar.right.pane.tab'>
   & PropsStore<BrowserStore>
   & PropsLocale<'sidebarBrowser'>
   & InjectFace<BrowserInjected>
+
+/** The clearing actions a desktop bridge supplies; rendered as one toolbar menu. */
+function SiteClearingMenu({ site, busy, onAction, t }: {
+  readonly site: string | undefined
+  readonly busy: boolean
+  readonly onAction: (action: 'site' | 'all') => void
+  readonly t: PropsLocale<'sidebarBrowser'>['t']
+}): ReactNode {
+  const [open, setOpen] = useState(false)
+  return <Menu open={open} align="end" side="bottom" portal compact autoFocus onClose={() => { setOpen(false) }}
+    anchor={<button type="button" className={css.tool} aria-label={t('clear.menu')} title={t('clear.menu')}
+      aria-haspopup="menu" aria-expanded={open} onClick={() => { setOpen(value => !value) }}
+    ><IconEllipsisOutlineMedium size={14} /></button>}
+    items={[
+      { id: 'site', label: site === undefined ? t('clear.site.none') : t('clear.site', { site }),
+        disabled: busy || site === undefined },
+      { id: 'all', label: t('clear.all'), disabled: busy, danger: true },
+    ]}
+    onSelect={(id) => { setOpen(false); onAction(id as 'site' | 'all') }}
+  />
+}
 
 function useBrowserDraft(url: string | undefined, revision: number): readonly [string, (value: string) => void] {
   const [edit, setEdit] = useState<{ readonly revision: number; readonly value: string }>()
@@ -83,6 +112,25 @@ export function BrowserBody(props: BrowserBodyProps): ReactNode {
   const sandboxed = frame.sandboxEnabled
   const failure = state?.addressFailure
   const error = frame.error
+  const { clearSite, clearAllSites } = props
+  const site = frame.site
+  const [clearNotice, setClearNotice] = useState<ClearNotice>()
+  const [clearBusy, setClearBusy] = useState(false)
+  useEffect(() => {
+    if (clearNotice === undefined) return
+    const timer = setTimeout(() => { setClearNotice(undefined) }, CLEAR_NOTICE_MS)
+    return () => { clearTimeout(timer) }
+  }, [clearNotice])
+  const runClear = (action: 'site' | 'all'): void => {
+    if (clearBusy || clearSite === undefined || clearAllSites === undefined) return
+    // The partition's site may have gone between rendering and selection; never widen to clearing all.
+    if (action === 'site' && site === undefined) return
+    const done: ClearNotice = action === 'site' && site !== undefined ? { kind: 'site', site } : { kind: 'all' }
+    setClearBusy(true); setClearNotice(undefined)
+    void (action === 'site' ? clearSite(tab.id) : clearAllSites())
+      .then(() => { setClearNotice(done) }, () => { setClearNotice({ kind: 'failed' }) })
+      .finally(() => { setClearBusy(false) })
+  }
   const submit = (event: SubmitEvent<HTMLFormElement>): void => { event.preventDefault(); loadUrl(tab.id, draft) }
 
   return (
@@ -118,7 +166,13 @@ export function BrowserBody(props: BrowserBodyProps): ReactNode {
           aria-pressed={!sandboxed}
           onClick={() => { setSandbox(tab.id, !sandboxed) }}
         ><SandboxPolicyIcon sandboxed={sandboxed} /></button>}
+        {clearSite !== undefined && clearAllSites !== undefined
+          && <SiteClearingMenu site={site} busy={clearBusy} onAction={runClear} t={t} />}
       </form>
+      {clearNotice !== undefined && <div className={css.notice} role="status">
+        {clearNotice.kind === 'site' ? t('clear.done.site', { site: clearNotice.site })
+          : t(clearNotice.kind === 'all' ? 'clear.done.all' : 'clear.failed')}
+      </div>}
       {sandboxed === false && <div className={css.sandboxWarning} role="status">{t('sandbox.warning')}</div>}
       {error !== undefined && <div className={css.failure} role="status">{error.code !== undefined && error.description !== undefined
         ? t('load.failed.detail', { code: String(error.code), description: error.description })

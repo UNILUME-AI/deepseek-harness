@@ -4,7 +4,7 @@ import type { Branded } from '@deepseek-ai/dsh-brand'
 /** Main-issued identity of one guest reservation. */
 export type DesktopBrowserLeaseId = Branded<'DesktopBrowserLeaseId'>
 
-/** A guest's approved, process-local storage partition. */
+/** A guest's approved, site-scoped persistent storage partition. */
 export interface DesktopBrowserReservation {
   readonly lease: DesktopBrowserLeaseId
   readonly partition: string
@@ -46,8 +46,11 @@ export interface CredentialFillResult {
 
 /** Origin-scoped operations; no Electron objects or arbitrary IPC cross this interface. */
 export interface DesktopBrowserBridge {
-  /** @param workspace - resolved storage account. @returns one approved guest reservation. */
-  acquire(workspace: string): Promise<DesktopBrowserReservation>
+  /**
+   * @param siteUrl - HTTP(S) navigation target whose normalized origin scopes the persistent storage partition.
+   * @returns one approved guest reservation.
+   */
+  acquire(siteUrl: string): Promise<DesktopBrowserReservation>
   /** @param lease - the caller's reservation. @returns after its guest has been destroyed. */
   release(lease: DesktopBrowserLeaseId): Promise<void>
   /** @param lease - the guest the renderer just made the active browser tab. */
@@ -56,6 +59,13 @@ export interface DesktopBrowserBridge {
   reportInactive(lease: DesktopBrowserLeaseId): void
   /** @param lease - originating guest. @param listener - approved URL consumer. @returns unsubscribe callback. */
   onOpenRequested(lease: DesktopBrowserLeaseId, listener: (url: string) => void): () => void
+  /**
+   * @param lease - live reservation whose partition is erased; every guest in that partition is closed first.
+   * @returns after storage cleanup.
+   */
+  clearSite(lease: DesktopBrowserLeaseId): Promise<void>
+  /** @returns after the stored data of every sidebar site partition is erased and their guests are closed. */
+  clearAllSites(): Promise<void>
 }
 
 /** Desktop-only credential operations, unavailable to guest pages and the Web iframe. */

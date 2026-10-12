@@ -8,16 +8,15 @@ import { ElectronWebviewPresentation } from './ElectronWebviewPresentation.ts'
  * Assemble an idle Electron provider; guest creation waits for mounting and navigation.
  * @param options - checkpoint and source-tab callbacks.
  * @param bridge - desktop-only transport.
- * @param workspace - storage account resolver.
  * @param credentials - optional desktop credential operations.
  * @returns separate navigation and presentation faces.
  */
 export function createElectronPage(options: BrowserPageOptions, bridge: DesktopBrowserBridge,
-  workspace: (signal: AbortSignal) => Promise<string>, credentials?: DesktopCredentialsBridge): BrowserPage {
+  credentials?: DesktopCredentialsBridge): BrowserPage {
   const presentation = new ElectronWebviewPresentation({
     mounted: () => { frame.attach() },
     unmounted: () => { frame.detach() },
   })
-  const frame = new ElectronWebViewImpl(options, bridge, workspace, presentation)
+  const frame = new ElectronWebViewImpl(options, bridge, presentation)
   return { frame, presentation, ...(credentials === undefined ? {} : { credentials: frame.credentials(credentials) }) }
 }

@@ -50,12 +50,13 @@ function mountBrowser(navigation?: { readonly url?: string },
     refreshShortcut?: ReturnType<BrowserBodyProps['useTabInfo']>['tab']['refreshShortcut']
     visible?: { subscribe(listener: () => void): () => void; getSnapshot(): boolean }
     credentials?: BrowserCredentials
+    clearAllSites?: () => Promise<void>
   } = {}) {
   const store = createBrowserStore().create(`browser-body-test-${String(++mountSequence)}`)
   if (options.initial !== undefined) store.actions.replace(TAB, options.initial)
   const lifetime = new AbortController()
   lifetimes.add(lifetime)
-  const injected = createBrowserControllers(store.actions, options.createPage ?? createIframePage, () => true)
+  const injected = createBrowserControllers(store.actions, options.createPage ?? createIframePage, () => true, options.clearAllSites)
   controllers.push(injected)
   const visibleSource = options.visible ?? alwaysVisible
   const { keyedHooks, ...commands } = injected
@@ -347,4 +348,86 @@ it('shows credential controls when supplied by the desktop page provider', () =>
     list: vi.fn(async () => []), add: vi.fn(), remove: vi.fn(), fill: vi.fn(), reportActive: vi.fn(), reportInactive: vi.fn(),
   } }) })
   expect(view.getByRole('button', { name: zh['credentials.open'] })).toBeDefined()
+})
+
+it('hides the sign-in clearing menu without the desktop clearing bridge', async () => {
+  const mounted = mountBrowser()
+  const input = mounted.view.getByRole('textbox')
+  fireEvent.change(input, { target: { value: 'https://example.com/one' } })
+  fireEvent.submit(input.closest('form')!)
+  await waitFor(() => { expect(mounted.view.container.querySelector('iframe')).not.toBeNull() })
+  expect(mounted.view.queryByRole('button', { name: zh['clear.menu'] })).toBeNull()
+})
+
+/** A live page whose stored data belongs to `site`, which may differ from the page it shows. */
+function sitePage(clear: () => Promise<void>) {
+  const state = createSnapshotStore<BrowserFrameState>({ ...emptyBrowserFrame(), address: 'observed', site: 'https://first.example',
+    target: { kind: 'https', url: 'https://login.example/oauth', title: 'Login' } })
+  const reload = vi.fn(() => { state.set({ ...state.getSnapshot(), error: undefined }) })
+  const createPage: BrowserPageFactory = () => ({
+    presentation: { mount: () => () => {} },
+    frame: { getSnapshot: () => state.getSnapshot(), subscribe: listener => state.subscribe(listener),
+      loadUrl: vi.fn(), goBack: vi.fn(), goForward: vi.fn(), reload, dispose: async () => {}, siteData: { clear } },
+  })
+  return { state, createPage, reload }
+}
+
+function siteRowName(site: string): string { return zh['clear.site'].replace('{site}', site) }
+
+it('clears the partition site of the live page, names it, and dismisses the notice', async () => {
+  const clear = vi.fn(async () => {})
+  const clearAllSites = vi.fn(async () => {})
+  const { createPage } = sitePage(clear)
+  const mounted = mountBrowser(undefined, { createPage, clearAllSites })
+  fireEvent.click(mounted.view.getByRole('button', { name: zh['clear.menu'] }))
+  // The row names the site owning the partition, not the page currently shown.
+  const siteRow = await waitFor(() => mounted.view.getByRole('menuitem', { name: siteRowName('https://first.example') }))
+  expect(siteRow).toHaveProperty('disabled', false)
+  vi.useFakeTimers()
+  try {
+    fireEvent.click(siteRow)
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(clear).toHaveBeenCalledExactlyOnceWith()
+    expect(clearAllSites).not.toHaveBeenCalled()
+    expect(mounted.view.getByRole('status').textContent).toBe(zh['clear.done.site'].replace('{site}', 'https://first.example'))
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+    expect(mounted.view.queryByRole('status')).toBeNull()
+  } finally { vi.useRealTimers() }
+})
+
+it('reports a single-site clearing failure without widening it to every site', async () => {
+  const clearAllSites = vi.fn(async () => {})
+  const { createPage } = sitePage(vi.fn(async () => { throw new Error('Guest not available') }))
+  const mounted = mountBrowser(undefined, { createPage, clearAllSites })
+  fireEvent.click(mounted.view.getByRole('button', { name: zh['clear.menu'] }))
+  fireEvent.click(await waitFor(() => mounted.view.getByRole('menuitem', { name: siteRowName('https://first.example') })))
+  await waitFor(() => { expect(mounted.view.getByRole('status').textContent).toBe(zh['clear.failed']) })
+  expect(clearAllSites).not.toHaveBeenCalled()
+})
+
+it('rejects single-site clearing for a page without a site data control', async () => {
+  const mounted = mountBrowser(undefined, { clearAllSites: vi.fn(async () => {}) })
+  await expect(mounted.injected.clearSite!(TAB)).rejects.toThrow('no site data control')
+})
+
+it('rejects single-site clearing for a tab without a controller', async () => {
+  const mounted = mountBrowser(undefined, { clearAllSites: vi.fn(async () => {}) })
+  await expect(mounted.injected.clearSite!('missing' as TabId)).rejects.toThrow('Browser tab is not open')
+})
+
+it('clears every site, recovers closed pages, and keeps the single-site row disabled without a live page', async () => {
+  const { state, createPage, reload } = sitePage(vi.fn(async () => {}))
+  const clearAllSites = vi.fn(async () => {
+    // Main closed the live guest, which the provider reports as a load failure.
+    state.set({ ...state.getSnapshot(), site: undefined, error: { code: undefined, description: undefined } })
+  })
+  const mounted = mountBrowser(undefined, { createPage, clearAllSites })
+  act(() => { state.set({ ...state.getSnapshot(), site: undefined }) })
+  fireEvent.click(mounted.view.getByRole('button', { name: zh['clear.menu'] }))
+  const siteRow = await waitFor(() => mounted.view.getByRole('menuitem', { name: zh['clear.site.none'] }))
+  expect(siteRow).toHaveProperty('disabled', true)
+  fireEvent.click(mounted.view.getByRole('menuitem', { name: zh['clear.all'] }))
+  await waitFor(() => { expect(clearAllSites).toHaveBeenCalledExactlyOnceWith() })
+  await waitFor(() => { expect(mounted.view.getByRole('status').textContent).toBe(zh['clear.done.all']) })
+  expect(reload).toHaveBeenCalledOnce()
 })

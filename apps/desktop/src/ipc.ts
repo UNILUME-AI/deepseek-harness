@@ -1,7 +1,7 @@
 /** Typed preload operations exposed only by the Electron shell. */
 
+import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent } from 'electron'
 import type { DesktopKeyboardApi, DesktopShortcutsApi } from '@deepseek-ai/dsh-client-shortcuts/protocol'
-import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron'
 import type { DesktopBrowserBridge, DesktopCredentialsBridge } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
 
 /** IPC channel names kept private to the desktop application bundle. */
@@ -24,6 +24,8 @@ export const DESKTOP_IPC = {
   browserDeactivated: 'dsh-desktop:browser-deactivated',
   browserVisibilityQuery: 'dsh-desktop:browser-visibility-query',
   browserVisibilityAnswer: 'dsh-desktop:browser-visibility-answer',
+  browserClearSite: 'dsh-desktop:browser-clear-site',
+  browserClearAllSites: 'dsh-desktop:browser-clear-all-sites',
   directoryPick: 'dsh-desktop:directory-pick',
   deviceInfo: 'dsh-desktop:device-info',
   localeBootstrap: 'dsh-desktop:locale-bootstrap',
@@ -110,4 +112,20 @@ export function assertDesktopSender(event: IpcMainInvokeEvent | IpcMainEvent, ho
   if (url.protocol !== `${SCHEME}:` || !hostnames.includes(url.hostname)) {
     throw new Error('dsh desktop: rejected IPC from an unowned renderer')
   }
+}
+
+/**
+ * Reject IPC that does not come from the application's primary window main frame.
+ * @param event - IPC caller.
+ * @param primary - current application window.
+ * @returns the primary window for operations that need more than sender identity.
+ */
+export function assertPrimarySender(event: IpcMainInvokeEvent, primary: () => BrowserWindow | undefined): BrowserWindow {
+  assertDesktopSender(event, ['app'])
+  const window = primary()
+  if (window === undefined || window.isDestroyed() || event.sender !== window.webContents
+    || event.senderFrame !== window.webContents.mainFrame) {
+    throw new Error('dsh desktop: rejected IPC from an unowned renderer')
+  }
+  return window
 }

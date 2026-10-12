@@ -21,6 +21,8 @@ export interface BrowserTabState {
   readonly request: { readonly revision: number; readonly target: BrowserTarget } | undefined
   readonly navigation: BrowserNavigationStatus
   readonly failure: BrowserFailure | undefined
+  /** Origin chosen by the tab's first page; providers with site-scoped storage keep using its partition. */
+  readonly site?: string
 }
 
 /**
@@ -36,9 +38,10 @@ export function currentBrowserTarget(state: BrowserTabState | undefined): Browse
  * Checkpoint an observed address without serializing native history.
  * @param target - current address.
  * @param revision - navigation generation.
+ * @param site - storage site retained for the tab, if any.
  * @returns an address-only checkpoint.
  */
-export function browserAddressCheckpoint(target: BrowserTarget, revision: number): BrowserTabState {
+export function browserAddressCheckpoint(target: BrowserTarget, revision: number, site?: string): BrowserTabState {
   return { entries: [target], index: 0, request: { target, revision },
-    navigation: { status: 'known', revision }, failure: undefined }
+    navigation: { status: 'known', revision }, failure: undefined, ...(site === undefined ? {} : { site }) }
 }
