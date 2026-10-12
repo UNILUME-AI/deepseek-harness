@@ -76,6 +76,10 @@ describe('desktop package target', () => {
   it('accepts unsigned supported targets and rejects preparation-only use', () => {
     expect(parseDesktopPackageInvocation(['win-x64', '--unsigned'], 'win32', 'x64').unsigned).toBe(true)
     expect(parseDesktopPackageInvocation(['win-x64'], 'win32', 'x64').unsigned).toBe(false)
+    expect(parseDesktopPackageInvocation(['mac-arm64', '--unsigned'], 'darwin', 'arm64')).toMatchObject({
+      unsigned: true, target: { name: 'mac-arm64' },
+    })
+    expect(parseDesktopPackageInvocation(['mac-arm64'], 'darwin', 'arm64').unsigned).toBe(false)
     expect(parseDesktopPackageInvocation(['--unsigned', '--dir'], 'win32', 'x64')).toMatchObject({
       unsigned: true, directory: true,
     })
