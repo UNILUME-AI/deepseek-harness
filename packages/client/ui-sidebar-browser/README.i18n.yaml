@@ -21,11 +21,14 @@
   en: fb79cb7d59bc01af
   zh: 5f6202d8b0b62d7d
 /deepseek-ai-dsh-client-ui-sidebar-browser/use-this-package/minimal-configuration:
-  en: 6d90060a0cc6cfd9
-  zh: 4edec0c3322b2703
+  en: cee999fe1f9b5c1d
+  zh: 2bb9770168699ce9
 /deepseek-ai-dsh-client-ui-sidebar-browser/use-this-package/desktop-credentials:
-  en: e207807ccf5d2d62
-  zh: e3cc3e7e2da53e81
+  en: 068c804ac1762b8b
+  zh: 533cb381ad05d605
+/deepseek-ai-dsh-client-ui-sidebar-browser/use-this-package/desktop-persistent-site-sessions:
+  en: 7c147f657961fc8f
+  zh: 8798d5d53728a733
 /deepseek-ai-dsh-client-ui-sidebar-browser/understand-the-implementation:
   en: 42b15ac6321706aa
   zh: e15901d8462ec7c7
@@ -36,8 +39,8 @@
   en: e535f7330bb62a79
   zh: 485932298fdabaa3
 /deepseek-ai-dsh-client-ui-sidebar-browser/understand-the-implementation/controller:
-  en: 6ddc24ffe34846cd
-  zh: aa81157d18f850cd
+  en: 5eac327085256f47
+  zh: 95be689c7ecddf55
 /deepseek-ai-dsh-client-ui-sidebar-browser/further-exploration:
   en: 4ebd881b4ade9d8f
   zh: 715f2553210c08e6
@@ -48,8 +51,8 @@
   en: e17a5fd3d5405745
   zh: db957a16dddce770
 /deepseek-ai-dsh-client-ui-sidebar-browser/known-limitations-and-deferred-work:
-  en: 307604babbe74f38
-  zh: 7d7a5aa4b99964d0
+  en: 05784fc4a2ef8051
+  zh: 9a3ab141434e11e7
 /deepseek-ai-dsh-client-ui-sidebar-browser/known-limitations-and-deferred-work/dev-note:
   en: 945685f7066eda81
   zh: da888e0d3f785bd5

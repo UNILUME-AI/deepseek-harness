@@ -56,6 +56,7 @@ import { DesktopUpdateDialog, type UpdateDialogOptions } from './update-dialog.t
 import { readDesktopRuntime } from './runtime-tree.ts'
 import { DesktopBrowserGuests } from './browser-guests.ts'
 import { RendererVisibility } from './browser-visibility.ts'
+import { registerBrowserHandlers } from './browser-ipc.ts'
 import { installDesktopShortcuts } from './keyboard.ts'
 import { DesktopUpdateOverlays } from './update-overlay.ts'
 import { DesktopQuitConfirmation } from './quit-confirmation.ts'
@@ -404,7 +405,7 @@ async function main(): Promise<void> {
   const applicationUrl = `${SCHEME}://app/`
   let hostUrl: string | undefined
   let hostCookie: string | undefined
-  const browserGuests = new DesktopBrowserGuests(() => hostUrl)
+  const browserGuests = new DesktopBrowserGuests(() => hostUrl, join(app.getPath('sessionData'), 'Partitions'))
   // The renderer answers pre-fill visibility queries from its own activation mirror.
   const rendererVisibility = new RendererVisibility(ipcMain)
   const vault = new CredentialVault(app.getPath('userData'))
@@ -718,14 +719,7 @@ async function main(): Promise<void> {
     reportFatal(new Error(message), 'web-boot')
   })
 
-  ipcMain.handle(DESKTOP_IPC.browserAcquire, (event, workspace: unknown) => {
-    assertProductSender(event)
-    return browserGuests.acquire(event.sender, workspace)
-  })
-  ipcMain.handle(DESKTOP_IPC.browserRelease, (event, lease: unknown) => {
-    assertProductSender(event)
-    return browserGuests.release(event.sender, lease)
-  })
+  registerBrowserHandlers(ipcMain, () => mainWindow, browserGuests)
   ipcMain.on(DESKTOP_IPC.browserActivated, (event, lease: unknown) => {
     // Fire-and-forget activation report; an unowned or stale sender is ignored, never fatal.
     if (!ownsPrimaryFrame(event)) return

@@ -118,6 +118,22 @@ export class BrowserController implements HostObservable<BrowserControllerState>
   /** @returns desktop-only operations bound to this tab's live guest. */
   getCredentials(): BrowserCredentials | undefined { return this.page.credentials }
 
+  /**
+   * Erase the live page's site partition through the provider's site data control.
+   * @returns after cleanup; rejects when the provider has no site data control.
+   */
+  async clearSite(): Promise<void> {
+    const control = this.page.frame.siteData
+    if (this.disposed || control === undefined) throw new Error('Browser page has no site data control')
+    await control.clear()
+  }
+
+  /** Recreate a page whose guest an external clearing closed; unstarted and healthy pages stay unchanged. */
+  recover(): void {
+    const current = this.store.getSnapshot()
+    if (current.restoreTarget === undefined && current.frame.error !== undefined) this.reload()
+  }
+
   /** Delegate Back to the page's navigation provider. */
   goBack(): void { this.command(() => { this.page.frame.goBack() }) }
   /** Delegate Forward to the page's navigation provider. */
@@ -187,6 +203,10 @@ export interface BrowserMountRequest {
 export interface BrowserInjected {
   /** @param tabId - owning tab. @returns desktop-only credential controls when supplied by its provider. */
   getCredentials?(tabId: TabId): BrowserCredentials | undefined
+  /** @param tabId - tab whose live page's site partition is erased. @returns after cleanup; every closed page reloads in a fresh guest. */
+  clearSite?(tabId: TabId): Promise<void>
+  /** @returns after every sidebar site partition has been erased and pages it closed were reloaded. */
+  clearAllSites?(): Promise<void>
   readonly keyedHooks: {
     readonly browserState: (key: string) => HostObservable<BrowserControllerState> | undefined
   }
@@ -215,10 +235,11 @@ export interface BrowserInjected {
  * @param actions - persisted view-state writer.
  * @param createPage - composition-selected provider.
  * @param isTabOpen - authoritative layout membership, independent of mounted bodies and plugin lifetime.
+ * @param clearAllSites - desktop-only erasure of every site partition; its absence also hides per-tab clearing.
  * @returns tab callbacks.
  */
 export function createBrowserControllers(actions: BoundActions<BrowserStore>, createPage: BrowserPageFactory,
-  isTabOpen: (tabId: TabId) => boolean): BrowserInjected {
+  isTabOpen: (tabId: TabId) => boolean, clearAllSites?: () => Promise<void>): BrowserInjected {
   let currentActions = actions
   const controllers = new Map<TabId, {
     readonly signal: AbortSignal
@@ -226,7 +247,7 @@ export function createBrowserControllers(actions: BoundActions<BrowserStore>, cr
     readonly forget: () => void
   }>()
   const controller = (id: TabId): BrowserController | undefined => controllers.get(id)?.controller
-  return {
+  const base: BrowserInjected = {
     keyedHooks: { browserState: key => controller(key as TabId) },
     getCredentials: id => controller(id)?.getCredentials(),
     mount(request) {
@@ -270,5 +291,19 @@ export function createBrowserControllers(actions: BoundActions<BrowserStore>, cr
     goForward: (id) => { controller(id)?.goForward() },
     reload: (id) => { controller(id)?.reload() },
     setSandbox: (id, enabled) => { controller(id)?.setSandbox(enabled) },
+  }
+  return clearAllSites === undefined ? base : {
+    ...base,
+    clearSite: async (id) => {
+      const held = controller(id)
+      if (held === undefined) throw new Error('Browser tab is not open')
+      // Main closes every guest in the partition, so pages other than this tab also lost theirs.
+      try { await held.clearSite() }
+      finally { for (const { controller } of controllers.values()) controller.recover() }
+    },
+    clearAllSites: async () => {
+      try { await clearAllSites() }
+      finally { for (const { controller } of controllers.values()) controller.recover() }
+    },
   }
 }

@@ -3,20 +3,32 @@ import { describe, expect, it, vi } from 'vitest'
 import type { BrowserWindow, WebContents } from 'electron'
 import { DesktopBrowserGuests } from '../src/browser-guests.ts'
 
+// Clearing checks that Electron keeps `persist:<name>` under `<partitions>/<name>`.
+const PARTITIONS = '/partitions'
+const storage = vi.hoisted(() => ({ gate: undefined as Promise<void> | undefined }))
 const electronMock = vi.hoisted(() => ({
   app: { isPackaged: true },
   session: {
-    fromPartition: vi.fn(() => ({
+    fromPartition: vi.fn((name: string) => ({
+      storagePath: `/partitions/${name.slice('persist:'.length)}`,
       setPermissionRequestHandler: vi.fn(),
       setPermissionCheckHandler: vi.fn(),
       setDevicePermissionHandler: vi.fn(),
       setDisplayMediaRequestHandler: vi.fn(),
       on: vi.fn(),
       webRequest: { onBeforeRequest: vi.fn() },
+      closeAllConnections: vi.fn(async () => {}),
+      clearStorageData: vi.fn(async () => { await storage.gate }),
+      clearCache: vi.fn(async () => {}),
+      clearAuthCache: vi.fn(async () => {}),
     })),
   },
 }))
 vi.mock('electron', () => electronMock)
+
+function browserGuests(): DesktopBrowserGuests {
+  return new DesktopBrowserGuests(() => undefined, PARTITIONS)
+}
 
 /** A guest as the lease owner sees it: an emitter with the lifecycle surface bind() touches. */
 function fakeGuest(url: string): WebContents & EventEmitter {
@@ -54,10 +66,10 @@ function attach(owner: WebContents & EventEmitter,
 
 describe('DesktopBrowserGuests active tab tracking', () => {
   it('resolves the renderer-reported active lease to its live guest', async () => {
-    const guests = new DesktopBrowserGuests(() => undefined)
+    const guests = browserGuests()
     const owner = new EventEmitter() as WebContents & EventEmitter
-    const first = guests.acquire(owner, 'workspace')
-    const second = guests.acquire(owner, 'workspace')
+    const first = await guests.acquire(owner, 'https://site.example/')
+    const second = await guests.acquire(owner, 'https://site.example/')
     bindGuests(guests, owner)
     const firstGuest = attach(owner, first)
     const secondGuest = attach(owner, second)
@@ -80,11 +92,11 @@ describe('DesktopBrowserGuests active tab tracking', () => {
     expect(guests.getActiveGuest(owner)).toBeUndefined()
   })
 
-  it('ignores reports for foreign owners, unknown leases, and non-strings', () => {
-    const guests = new DesktopBrowserGuests(() => undefined)
+  it('ignores reports for foreign owners, unknown leases, and non-strings', async () => {
+    const guests = browserGuests()
     const owner = new EventEmitter() as WebContents & EventEmitter
     const other = new EventEmitter() as WebContents & EventEmitter
-    const reservation = guests.acquire(owner, 'workspace')
+    const reservation = await guests.acquire(owner, 'https://site.example/')
     bindGuests(guests, owner)
     const guest = attach(owner, reservation)
 
@@ -100,9 +112,9 @@ describe('DesktopBrowserGuests active tab tracking', () => {
   })
 
   it('drops the active marker when its guest is destroyed', async () => {
-    const guests = new DesktopBrowserGuests(() => undefined)
+    const guests = browserGuests()
     const owner = new EventEmitter() as WebContents & EventEmitter
-    const reservation = guests.acquire(owner, 'workspace')
+    const reservation = await guests.acquire(owner, 'https://site.example/')
     bindGuests(guests, owner)
     const guest = attach(owner, reservation)
     guests.markActive(owner, reservation.lease)
@@ -112,10 +124,10 @@ describe('DesktopBrowserGuests active tab tracking', () => {
   })
 
   it('clears the active marker when the renderer reports the tab hidden', async () => {
-    const guests = new DesktopBrowserGuests(() => undefined)
+    const guests = browserGuests()
     const owner = new EventEmitter() as WebContents & EventEmitter
     const other = new EventEmitter() as WebContents & EventEmitter
-    const reservation = guests.acquire(owner, 'workspace')
+    const reservation = await guests.acquire(owner, 'https://site.example/')
     bindGuests(guests, owner)
     const guest = attach(owner, reservation)
     guests.markActive(owner, reservation.lease)
@@ -142,5 +154,45 @@ describe('DesktopBrowserGuests active tab tracking', () => {
     // Non-string reports are ignored.
     guests.markInactive(owner, 42)
     expect(guests.getActiveGuest(owner)).toBe(guest)
+  })
+
+  it('never resolves a tab closed by clearing its site as the fill target', async () => {
+    const guests = browserGuests()
+    const owner = new EventEmitter() as WebContents & EventEmitter
+    const cleared = await guests.acquire(owner, 'https://cleared.example/login')
+    const sameSite = await guests.acquire(owner, 'https://cleared.example/other')
+    const bystander = await guests.acquire(owner, 'https://bystander.example/')
+    bindGuests(guests, owner)
+    const clearedGuest = attach(owner, cleared)
+    const sameSiteGuest = attach(owner, sameSite)
+    attach(owner, bystander)
+    const closed: string[] = []
+    clearedGuest.once('destroyed', () => { closed.push('cleared') })
+    sameSiteGuest.once('destroyed', () => { closed.push('sameSite') })
+    guests.markActive(owner, cleared.lease)
+    expect(guests.getActiveGuest(owner)).toBe(clearedGuest)
+
+    const gate = Promise.withResolvers<undefined>()
+    storage.gate = gate.promise
+    const clearing = guests.clearSite(owner, cleared.lease)
+    // While the partition is being cleared, neither reports nor focus can make its tabs the target.
+    expect(guests.getActiveLease(owner)).toBeUndefined()
+    expect(guests.getActiveGuest(owner)).toBeUndefined()
+    guests.markActive(owner, sameSite.lease)
+    sameSiteGuest.emit('focus')
+    expect(guests.getActiveLease(owner)).toBeUndefined()
+    expect(guests.getGuest(owner, sameSite.lease)).toBeUndefined()
+    gate.resolve(undefined)
+    storage.gate = undefined
+    await clearing
+
+    expect(closed.sort()).toEqual(['cleared', 'sameSite'])
+    guests.markActive(owner, cleared.lease)
+    guests.markActive(owner, sameSite.lease)
+    expect(guests.getActiveLease(owner)).toBeUndefined()
+    expect(guests.getActiveGuest(owner)).toBeUndefined()
+    // Tabs on other sites stay eligible.
+    guests.markActive(owner, bystander.lease)
+    expect(guests.getActiveLease(owner)).toBe(bystander.lease)
   })
 })

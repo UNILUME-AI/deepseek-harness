@@ -2,11 +2,10 @@
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { DesktopBrowserBridge, DesktopBrowserLeaseId, DesktopCredentialsBridge, BrowserCredentials } from '../../types.ts'
 import type { ElectronWebviewPresentation, WebviewElement } from './ElectronWebviewPresentation.ts'
-import { emptyBrowserFrame, type BrowserFrame, type BrowserFrameState, type BrowserLoadError } from '../browser/BrowserFrame.ts'
+import { emptyBrowserFrame, type BrowserFrame, type BrowserFrameState, type BrowserLoadError, type BrowserSiteDataControl } from '../browser/BrowserFrame.ts'
 import type { BrowserPageOptions } from '../browser/BrowserPage.ts'
 import { browserAddressCheckpoint, currentBrowserTarget } from '../browser/BrowserPersistence.ts'
 import { parseBrowserAddress, type BrowserTarget } from '../browser/url.ts'
-
 interface NavigationEvent extends Event { readonly isMainFrame: boolean }
 interface LoadFailureEvent extends NavigationEvent {
   readonly errorCode: number
@@ -21,7 +20,6 @@ export class ElectronWebViewImpl implements BrowserFrame {
   private element: WebviewElement | undefined
   private lease: DesktopBrowserLeaseId | undefined
   private activationPending = false
-  private workspaceKey: string | undefined
   private initializing: Promise<void> | undefined
   private ready = false
   private pending: BrowserTarget | undefined
@@ -31,18 +29,37 @@ export class ElectronWebViewImpl implements BrowserFrame {
   private disposal: Promise<void> | undefined
   private attachment: AbortController | undefined
   private readonly releases = new Set<Promise<void>>()
+  /** Origin whose partition every guest of this tab uses, fixed by the first page so cross-site sign-ins survive remounts. */
+  private site: string | undefined
 
   /**
    * @param options - saved address, persistence and source-tab opening callback.
    * @param bridge - main-process guest operations.
-   * @param workspace - resolves the storage account once for this frame lifetime.
    * @param presentation - tag and Sidebar placement adapter.
    */
   constructor(private readonly options: BrowserPageOptions, private readonly bridge: DesktopBrowserBridge,
-    private readonly workspace: (signal: AbortSignal) => Promise<string>,
     private readonly presentation: ElectronWebviewPresentation) {
     this.checkpoint = currentBrowserTarget(options.initial)
+    // Records saved before site retention fall back to their current page in createGuest.
+    this.site = options.initial?.site
     this.store = createSnapshotStore(emptyBrowserFrame())
+  }
+
+  /** Clearing closes the live guest in main; this tab then reloads its page in a fresh guest. */
+  readonly siteData: BrowserSiteDataControl = {
+    clear: async () => {
+      const lease = this.lease
+      if (lease === undefined || this.lifetime.signal.aborted) throw new Error('Guest not available')
+      // Main closes this guest; stop observing it so the closure is not reported as a load failure.
+      this.guestLifetime?.abort()
+      try { await this.bridge.clearSite(lease) }
+      finally {
+        if (this.lease === lease) {
+          await this.dropGuest()
+          this.reload()
+        }
+      }
+    },
   }
 
   /**
@@ -173,14 +190,21 @@ export class ElectronWebViewImpl implements BrowserFrame {
   }
 
   private async createGuest(attachmentSignal: AbortSignal): Promise<void> {
-    this.workspaceKey ??= await this.workspace(attachmentSignal)
+    const pending = this.pending
+    if (pending === undefined) throw new Error('Desktop browser guest creation requires a navigation target')
     if (attachmentSignal.aborted) return
-    const reservation = await this.bridge.acquire(this.workspaceKey)
+    if (this.site === undefined) {
+      this.site = new URL(pending.url).origin
+      if (this.checkpoint !== undefined) this.options.persist(browserAddressCheckpoint(this.checkpoint, this.revision, this.site))
+    }
+    const site = this.site
+    const reservation = await this.bridge.acquire(site)
     // oxlint-disable-next-line typescript/no-unnecessary-condition -- The signal can abort while acquire is pending.
     if (attachmentSignal.aborted) { await this.release(reservation.lease); return }
     this.lease = reservation.lease
-    // An activation reported before acquisition resolves against the fresh lease now.
+    // An activation reported before acquisition, or kept across a site clear, resolves against the fresh lease now.
     if (this.activationPending) this.bridge.reportActive(reservation.lease)
+    this.store.set({ ...this.store.getSnapshot(), site })
     this.guestLifetime = new AbortController()
     const signal = AbortSignal.any([attachmentSignal, this.guestLifetime.signal])
     const element = this.presentation.createElement(reservation)
@@ -267,7 +291,7 @@ export class ElectronWebViewImpl implements BrowserFrame {
   private persist(target: BrowserTarget): void {
     if (target.url === this.checkpoint?.url && target.title === this.checkpoint.title) return
     this.checkpoint = target
-    this.options.persist(browserAddressCheckpoint(target, this.revision))
+    this.options.persist(browserAddressCheckpoint(target, this.revision, this.site))
   }
 
   private failed(error: BrowserLoadError = { code: undefined, description: undefined }): void {
@@ -285,6 +309,7 @@ export class ElectronWebViewImpl implements BrowserFrame {
   private dropGuest(): Promise<void> {
     this.guestLifetime?.abort()
     this.guestLifetime = undefined
+    if (this.store.getSnapshot().site !== undefined) this.store.set({ ...this.store.getSnapshot(), site: undefined })
     this.presentation.clear()
     this.element = undefined
     this.ready = false

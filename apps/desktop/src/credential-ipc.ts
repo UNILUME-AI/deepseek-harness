@@ -4,7 +4,7 @@ import type { DesktopBrowserGuests } from './browser-guests.ts'
 import type { CredentialVault } from './credential-vault.ts'
 import { CredentialFiller } from './credential-fill.ts'
 import { credentialFields, credentialId, credentialOrigin, credentialText } from './credential-validation.ts'
-import { DESKTOP_IPC, assertDesktopSender } from './ipc.ts'
+import { DESKTOP_IPC, assertPrimarySender } from './ipc.ts'
 
 /**
  * @param ipc - main-process handler registry. @param primary - current application window.
@@ -12,13 +12,7 @@ import { DESKTOP_IPC, assertDesktopSender } from './ipc.ts'
  */
 export function registerCredentialHandlers(ipc: Pick<IpcMain, 'handle'>, primary: () => BrowserWindow | undefined,
   guests: Pick<DesktopBrowserGuests, 'getGuest'>, vault: CredentialVault): void {
-  const authorize = (event: IpcMainInvokeEvent): BrowserWindow => {
-    assertDesktopSender(event, ['app'])
-    const window = primary()
-    if (window === undefined || window.isDestroyed() || event.sender !== window.webContents
-      || event.senderFrame !== window.webContents.mainFrame) throw new Error('Rejected credential IPC caller')
-    return window
-  }
+  const authorize = (event: IpcMainInvokeEvent): BrowserWindow => assertPrimarySender(event, primary)
   ipc.handle(DESKTOP_IPC.credentialsList, async (event, origin: unknown) => {
     authorize(event)
     const filter = origin === undefined ? undefined : credentialOrigin(origin)

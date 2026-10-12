@@ -18,6 +18,8 @@ export interface BrowserFrameState {
   readonly error: BrowserLoadError | undefined
   /** Undefined when this provider does not expose a sandbox control. */
   readonly sandboxEnabled: boolean | undefined
+  /** Origin owning the live page's stored data; absent without a live page or for providers without site-scoped storage. */
+  readonly site: string | undefined
 }
 
 /** Optional iframe policy control, not an Electron process-sandbox switch. */
@@ -26,9 +28,16 @@ export interface BrowserSandboxControl {
   setEnabled(enabled: boolean): void
 }
 
+/** Optional control of providers whose tabs keep stored data in a site-scoped partition. */
+export interface BrowserSiteDataControl {
+  /** @returns after the live page's partition is erased; the page then reloads in a fresh guest, also after a failure. */
+  clear(): Promise<void>
+}
+
 /** Navigation owns page lifetime; mounting and hiding belong to BrowserPresentation. */
 export interface BrowserFrame extends HostObservable<BrowserFrameState> {
   readonly sandbox?: BrowserSandboxControl
+  readonly siteData?: BrowserSiteDataControl
   /** @param target - validated HTTP(S) address; loading failures are published in state. */
   loadUrl(target: BrowserTarget): void
   /** Move backward when the provider reports an available entry. */
@@ -47,5 +56,5 @@ export interface BrowserFrame extends HostObservable<BrowserFrameState> {
  */
 export function emptyBrowserFrame(): BrowserFrameState {
   return { target: undefined, address: 'empty', loading: false, canGoBack: false, canGoForward: false,
-    error: undefined, sandboxEnabled: undefined }
+    error: undefined, sandboxEnabled: undefined, site: undefined }
 }

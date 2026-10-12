@@ -29,7 +29,7 @@ export function createDesktopBrowserBridge(): DesktopBrowserBridge {
     })
   })
   return {
-    acquire: workspace => ipcRenderer.invoke(DESKTOP_IPC.browserAcquire, workspace) as ReturnType<DesktopBrowserBridge['acquire']>,
+    acquire: siteUrl => ipcRenderer.invoke(DESKTOP_IPC.browserAcquire, siteUrl) as ReturnType<DesktopBrowserBridge['acquire']>,
     release: lease => ipcRenderer.invoke(DESKTOP_IPC.browserRelease, lease) as Promise<void>,
     reportActive: (lease) => {
       visibleLeases.add(lease)
@@ -39,6 +39,8 @@ export function createDesktopBrowserBridge(): DesktopBrowserBridge {
       visibleLeases.delete(lease)
       ipcRenderer.send(DESKTOP_IPC.browserDeactivated, lease)
     },
+    clearSite: lease => ipcRenderer.invoke(DESKTOP_IPC.browserClearSite, lease) as Promise<void>,
+    clearAllSites: () => ipcRenderer.invoke(DESKTOP_IPC.browserClearAllSites) as Promise<void>,
     onOpenRequested(lease, listener) {
       let callbacks = listeners.get(lease)
       if (callbacks === undefined) { callbacks = new Set(); listeners.set(lease, callbacks) }

@@ -1,8 +1,22 @@
 /** Main-process ownership and fixed isolation policy for Sidebar webview guests. */
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
+import { readdir } from 'node:fs/promises'
+import { join } from 'node:path'
 import { app, session, type BrowserWindow, type Session, type WebContents } from 'electron'
 import type { DesktopBrowserLeaseId, DesktopBrowserOpenRequest, DesktopBrowserReservation } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
+import { credentialOrigin } from './credential-validation.ts'
 import { DESKTOP_IPC } from './ipc.ts'
+
+/** Electron stores `persist:<name>` under `<sessionData>/Partitions/<name>`; names here are already lowercase and path-safe. */
+const PARTITION_DIRECTORY_PREFIX = 'dsh-sidebar-browser-'
+
+/**
+ * @param origin - normalized HTTP(S) origin, for example `https://example.com`.
+ * @returns the stable persistent partition name; the origin is hashed so no plaintext site reaches disk paths.
+ */
+export function sidebarPartitionName(origin: string): string {
+  return `persist:${PARTITION_DIRECTORY_PREFIX}${createHash('sha256').update(origin).digest('hex')}`
+}
 
 interface GuestLease {
   readonly owner: WebContents
@@ -12,39 +26,45 @@ interface GuestLease {
   releaseInput?: () => void
 }
 
-/** Owns workspace storage partitions independently from individual tab guests. */
+/** Owns per-site storage partitions independently from individual tab guests. */
 export class DesktopBrowserGuests {
-  private readonly partitions = new Map<string, string>()
+  private readonly configured = new Set<string>()
   private readonly leases = new Map<DesktopBrowserLeaseId, GuestLease>()
   /** Per-owner most recently activated browser tab, as reported by the renderer and guest focus. */
   private readonly active = new Map<WebContents, DesktopBrowserLeaseId>()
-
-  /** @param hostUrl - current authenticated DSH Host, which guests cannot request. */
-  constructor(private readonly hostUrl: () => string | undefined) {}
+  /** Per-partition tail of acquire and clear operations, so a clear never erases a guest acquired meanwhile. */
+  private readonly partitionQueue = new Map<string, Promise<unknown>>()
+  /** Pending clear count per partition; its tabs cannot become or stay the active fill target meanwhile. */
+  private readonly clearing = new Map<string, number>()
 
   /**
-   * Reserve one guest in a workspace's process-lifetime partition.
+   * @param hostUrl - current authenticated DSH Host, which guests cannot request.
+   * @param partitionsDirectory - Electron's `<sessionData>/Partitions` directory, listed to clear partitions of earlier runs.
+   */
+  constructor(private readonly hostUrl: () => string | undefined, private readonly partitionsDirectory: string) {}
+
+  /**
+   * Reserve one guest in the target site's persistent partition.
    * @param owner - authenticated primary application WebContents.
-   * @param workspace - workspace identity received over IPC.
+   * @param siteUrl - HTTP(S) URL whose normalized origin scopes the partition.
    * @returns opaque lease and the partition approved for it.
    */
-  acquire(owner: WebContents, workspace: unknown): DesktopBrowserReservation {
-    if (typeof workspace !== 'string' || workspace.length === 0 || workspace.length > 4096) {
-      throw new Error('desktop browser: a workspace storage identity is required')
-    }
-    let partition = this.partitions.get(workspace)
-    if (partition === undefined) {
-      partition = `dsh-sidebar-browser-${randomUUID()}`
-      this.configureSession(session.fromPartition(partition))
-      this.partitions.set(workspace, partition)
-    }
-    const lease = randomUUID() as DesktopBrowserLeaseId
-    this.leases.set(lease, { owner, partition, attached: false })
-    return { lease, partition }
+  async acquire(owner: WebContents, siteUrl: unknown): Promise<DesktopBrowserReservation> {
+    // The vault's origin normalization is the one HTTP(S) site rule this shell already enforces.
+    const partition = sidebarPartitionName(credentialOrigin(siteUrl))
+    return await this.exclusive(partition, () => {
+      if (!this.configured.has(partition)) {
+        this.configureSession(session.fromPartition(partition))
+        this.configured.add(partition)
+      }
+      const lease = randomUUID() as DesktopBrowserLeaseId
+      this.leases.set(lease, { owner, partition, attached: false })
+      return { lease, partition }
+    })
   }
 
   /**
-   * Release only a lease issued to this application window; workspace storage survives.
+   * Release only a lease issued to this application window; the site's persistent storage survives.
    * @param owner - authenticated IPC sender.
    * @param id - lease received over IPC.
    */
@@ -69,13 +89,14 @@ export class DesktopBrowserGuests {
    * Get the guest WebContents for a lease, if active.
    * @param owner - authenticated IPC sender.
    * @param id - lease identifier.
-   * @returns guest WebContents or undefined if not found or destroyed.
+   * @returns guest WebContents, or undefined if not found, destroyed, or its partition has a pending clear.
    */
   getGuest(owner: WebContents, id: unknown): WebContents | undefined {
     if (typeof id !== 'string') return undefined
     const key = id as DesktopBrowserLeaseId
     const lease = this.leases.get(key)
-    if (lease === undefined || lease.owner !== owner || lease.guest?.isDestroyed()) return undefined
+    if (lease === undefined || lease.owner !== owner || lease.guest?.isDestroyed()
+      || this.clearing.has(lease.partition)) return undefined
     return lease.guest
   }
 
@@ -88,7 +109,7 @@ export class DesktopBrowserGuests {
     if (typeof id !== 'string') return
     const key = id as DesktopBrowserLeaseId
     const lease = this.leases.get(key)
-    if (lease === undefined || lease.owner !== owner) return
+    if (lease === undefined || lease.owner !== owner || this.clearing.has(lease.partition)) return
     this.active.set(owner, key)
   }
 
@@ -111,7 +132,7 @@ export class DesktopBrowserGuests {
    * @returns the live guest, or undefined when no tab was activated or it has since closed.
    */
   getActiveGuest(owner: WebContents): WebContents | undefined {
-    const id = this.active.get(owner)
+    const id = this.getActiveLease(owner)
     if (id === undefined) return undefined
     return this.getGuest(owner, id)
   }
@@ -119,10 +140,87 @@ export class DesktopBrowserGuests {
   /**
    * Resolve the lease of the owner's most recently activated browser tab.
    * @param owner - authenticated primary application WebContents.
-   * @returns the tracked lease, or undefined when no tab is active.
+   * @returns the tracked lease, or undefined when no tab is active or its partition has a pending clear.
    */
   getActiveLease(owner: WebContents): DesktopBrowserLeaseId | undefined {
-    return this.active.get(owner)
+    const id = this.active.get(owner)
+    const lease = id === undefined ? undefined : this.leases.get(id)
+    return lease === undefined || this.clearing.has(lease.partition) ? undefined : id
+  }
+
+  /**
+   * Close this window's guests in the lease's partition, then erase all of that partition's stored data.
+   * @param owner - authenticated IPC sender.
+   * @param id - lease of the tab whose partition is cleared; its page URL is not consulted.
+   */
+  async clearSite(owner: WebContents, id: unknown): Promise<void> {
+    if (typeof id !== 'string') throw new Error('desktop browser: invalid guest lease')
+    const lease = this.leases.get(id as DesktopBrowserLeaseId)
+    if (lease === undefined) throw new Error('desktop browser: unknown guest lease')
+    if (lease.owner !== owner) throw new Error('desktop browser: guest belongs to another window')
+    await this.clearPartition(owner, lease.partition)
+  }
+
+  /**
+   * Clear every sidebar partition on disk or used in this run, closing this window's guests first.
+   * @param owner - authenticated IPC sender.
+   */
+  async clearAllSites(owner: WebContents): Promise<void> {
+    const partitions = new Set(this.configured)
+    let entries: string[] = []
+    try {
+      entries = await readdir(this.partitionsDirectory)
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error
+    }
+    for (const entry of entries) {
+      if (entry.startsWith(PARTITION_DIRECTORY_PREFIX) && /^[\da-f]{64}$/.test(entry.slice(PARTITION_DIRECTORY_PREFIX.length))) partitions.add(`persist:${entry}`)
+    }
+    const results = await Promise.allSettled([...partitions].map(partition => this.clearPartition(owner, partition)))
+    const failures = results.filter(result => result.status === 'rejected')
+    if (failures.length > 0) {
+      throw new AggregateError(failures.map((result): unknown => result.reason), 'Sidebar browser storage cleanup failed')
+    }
+  }
+
+  private exclusive<T>(partition: string, task: () => T | Promise<T>): Promise<T> {
+    const run = (this.partitionQueue.get(partition) ?? Promise.resolve()).then(task, task)
+    const tail = run.catch((_error: unknown) => {
+      // The caller receives this failure; the queue only orders later operations.
+    })
+    this.partitionQueue.set(partition, tail)
+    void tail.then(() => { if (this.partitionQueue.get(partition) === tail) this.partitionQueue.delete(partition) })
+    return run
+  }
+
+  /** Close this window's leases on the partition, then erase every storage kind; the session stays configured. */
+  private clearPartition(owner: WebContents, partition: string): Promise<void> {
+    this.clearing.set(partition, (this.clearing.get(partition) ?? 0) + 1)
+    const cleared = this.exclusive(partition, async () => {
+      const ids = [...this.leases.entries()].filter(([, lease]) => lease.partition === partition).map(([id]) => id)
+      await Promise.all(ids.map(id => this.release(owner, id)))
+      const browserSession = session.fromPartition(partition)
+      const expected = join(this.partitionsDirectory, partition.slice('persist:'.length))
+      if (browserSession.storagePath !== expected) {
+        throw new Error('Sidebar browser partition is not stored where clearing expects it')
+      }
+      await browserSession.closeAllConnections()
+      const results = await Promise.allSettled([
+        // No `storages` filter: unlike Platform documents, sidebar sites keep nothing, including localStorage.
+        browserSession.clearStorageData(),
+        browserSession.clearCache(),
+        browserSession.clearAuthCache(),
+      ])
+      const failures = results.filter(result => result.status === 'rejected')
+      if (failures.length > 0) {
+        throw new AggregateError(failures.map((result): unknown => result.reason), 'Sidebar browser storage cleanup failed')
+      }
+    })
+    return cleared.finally(() => {
+      const pending = (this.clearing.get(partition) ?? 1) - 1
+      if (pending === 0) this.clearing.delete(partition)
+      else this.clearing.set(partition, pending)
+    })
   }
 
   /**
@@ -171,7 +269,7 @@ export class DesktopBrowserGuests {
         lease.releaseInput = attachInput(guest, id)
         // Split panes leave several guests visible; a focused guest is the newer active page.
         guest.on('focus', () => {
-          if (this.leases.get(id) === lease) this.active.set(owner, id)
+          if (this.leases.get(id) === lease && !this.clearing.has(lease.partition)) this.active.set(owner, id)
         })
         guest.once('destroyed', () => {
           lease.releaseInput?.()

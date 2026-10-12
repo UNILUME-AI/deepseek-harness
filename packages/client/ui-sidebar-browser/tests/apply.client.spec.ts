@@ -61,7 +61,6 @@ async function boot(platform: ShortcutPlatform = 'macos', runtime: 'desktop' | '
   ctx.provide('sidebarRight', sidebar as never)
   ctx.provide('shortcuts', { register: (command: ShortcutCommand) => registry.register(command) } as never)
   ctx.provide('sidebarRightTabs', tabs as never)
-  ctx.provide('workspaces', { list: createSnapshotStore({ phase: 'ready', items: [] }) } as never)
   ctx.provide('slots', slots as never)
   ctx.provide('locale', locale as never)
   const fiber = ctx.plugin({ inject: [...inject], apply })
@@ -72,14 +71,17 @@ async function boot(platform: ShortcutPlatform = 'macos', runtime: 'desktop' | '
 describe('ui-sidebar-browser apply', () => {
   it.each([0, 1])('binds and rebinds session controllers under desktop protocol %s', async (protocolVersion) => {
     const acquire = vi.fn(async () => ({ lease: 'test-lease' as DesktopBrowserLeaseId, partition: 'test-partition' }))
+    const clearSite = vi.fn(async () => {})
     const bridge: DesktopBrowserBridge = {
       acquire,
       release: vi.fn(async () => {}),
       reportActive: vi.fn(),
       reportInactive: vi.fn(),
+      clearSite,
+      clearAllSites: vi.fn(async () => {}),
       onOpenRequested: vi.fn(() => () => {}),
     }
-    vi.stubGlobal('dshDesktop', { protocolVersion, browser: bridge })
+    vi.stubGlobal('dshDesktop', { protocolVersion, browser: bridge, credentials: undefined })
     const h = await boot()
     expect(h.tabs.get(BROWSER_KIND)?.keepMounted).toBe(protocolVersion === 1)
     const injectFace = h.registered.find(entry => entry.name === 'sidebar.right.pane.tab')!.inject as
@@ -98,8 +100,15 @@ describe('ui-sidebar-browser apply', () => {
         initial: undefined, initialUrl: 'https://example.test/', openTab: vi.fn() })
       expect(replacementStore.getSnapshot().byTab[tabId]).toBeDefined()
       expect(firstStore.getSnapshot().byTab[tabId]).toBeUndefined()
-      if (protocolVersion === 1) await vi.waitFor(() => { expect(acquire).toHaveBeenCalledWith('session:session') })
-      else expect(host.querySelector('iframe')).not.toBeNull()
+      if (protocolVersion === 1) {
+        await vi.waitFor(() => { expect(acquire).toHaveBeenCalledWith('https://example.test') })
+        expect(controller).toHaveProperty('clearSite')
+        expect(controller).toHaveProperty('clearAllSites')
+      } else {
+        expect(host.querySelector('iframe')).not.toBeNull()
+        expect(controller).not.toHaveProperty('clearSite')
+        expect(controller).not.toHaveProperty('clearAllSites')
+      }
       h.openTabs.set([{ sessionId: 'other', tabId }, { sessionId: 'session', tabId: 'other-tab' as TabId }])
       signal.abort()
       expect(replacementStore.getSnapshot().byTab[tabId]).toBeUndefined()

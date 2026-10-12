@@ -2,6 +2,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import type { DesktopBrowserReservation } from '../src/types.ts'
 import { electronFixture } from './electron-harness.client.ts'
+import { browserAddressCheckpoint, currentBrowserTarget, type BrowserTabState } from '../src/client/browser/BrowserPersistence.ts'
 
 const target = { kind: 'https' as const, url: 'https://example.test/', title: 'Example' }
 const fixtures: ReturnType<typeof electronFixture>[] = []
@@ -89,35 +90,21 @@ it('releases an acquisition that finishes after attachment cancellation', async 
   }
 })
 
-it('does not acquire a guest when Workspace resolution finishes after disposal', async () => {
-  const h = fixture()
-  const pending = Promise.withResolvers<string>()
-  h.workspace.mockReturnValueOnce(pending.promise)
-  h.mount()
-  h.frame.loadUrl(target)
-  try {
-    const disposed = h.frame.dispose()
-    pending.resolve('cwd:/late')
-    await disposed
-    expect(h.bridge.acquire).not.toHaveBeenCalled()
-    h.mount()
-    expect(h.guests).toHaveLength(0)
-  } finally {
-    pending.resolve('cwd:/late')
-  }
-})
-
-it('recreates the guest after physical remount or crash without resolving Workspace again', async () => {
+it('acquires the first page\'s site and reuses it when recreating the guest', async () => {
   const h = fixture()
   const unmount = h.mount()
   h.frame.loadUrl(target)
   const first = await h.guest()
+  expect(h.bridge.acquire).toHaveBeenCalledExactlyOnceWith('https://example.test')
   first.emit('dom-ready')
+  expect(h.frame.getSnapshot().site).toBe('https://example.test')
   unmount()
+  expect(h.frame.getSnapshot().site).toBeUndefined()
   h.mount()
   const second = await h.guest()
   expect(second.element).not.toBe(first.element)
-  expect(h.workspace).toHaveBeenCalledOnce()
+  expect(h.bridge.acquire).toHaveBeenCalledTimes(2)
+  expect(h.bridge.acquire).toHaveBeenLastCalledWith('https://example.test')
   second.emit('dom-ready')
   expect(second.loadURL).toHaveBeenCalledWith(target.url)
   second.emit('render-process-gone')
@@ -129,6 +116,85 @@ it('recreates the guest after physical remount or crash without resolving Worksp
   expect(h.frame.getSnapshot().error).toBeUndefined()
   third.emit('destroyed')
   expect(h.frame.getSnapshot().error).toBeDefined()
+})
+
+it('keeps the first site\'s partition after a cross-site sign-in, across remount, crash retry and restart', async () => {
+  const h = fixture()
+  const unmount = h.mount()
+  h.frame.loadUrl(target)
+  const first = await h.guest()
+  first.emit('dom-ready')
+  // The page sends the user to another site to sign in; the guest and its partition stay.
+  first.state.url = 'https://login.example/session'
+  first.emit('did-navigate')
+  expect(h.frame.getSnapshot().target?.url).toBe('https://login.example/session')
+  const saved = h.persist.mock.lastCall![0] as BrowserTabState
+  expect(saved).toMatchObject({ site: 'https://example.test', entries: [{ url: 'https://login.example/session' }] })
+  unmount()
+  h.mount()
+  const remounted = await h.guest()
+  expect(h.bridge.acquire).toHaveBeenLastCalledWith('https://example.test')
+  remounted.emit('dom-ready')
+  expect(remounted.loadURL).toHaveBeenCalledWith('https://login.example/session')
+  remounted.emit('render-process-gone')
+  h.frame.reload()
+  await vi.waitFor(() => { expect(h.guests).toHaveLength(3) })
+  expect(h.bridge.acquire).toHaveBeenCalledTimes(3)
+  expect(h.bridge.acquire).toHaveBeenLastCalledWith('https://example.test')
+
+  const restarted = electronFixture(saved)
+  fixtures.push(restarted)
+  restarted.mount()
+  // The controller's Restore action loads the saved page.
+  restarted.frame.loadUrl(currentBrowserTarget(saved)!)
+  const restored = await restarted.guest()
+  expect(restarted.bridge.acquire).toHaveBeenCalledExactlyOnceWith('https://example.test')
+  restored.emit('dom-ready')
+  expect(restored.loadURL).toHaveBeenCalledWith('https://login.example/session')
+})
+
+it('acquires a legacy record without a site by its saved page and records that site', async () => {
+  const legacy = browserAddressCheckpoint({ kind: 'https', url: 'https://legacy.example/home', title: 'Legacy' }, 1)
+  const h = electronFixture(legacy)
+  fixtures.push(h)
+  h.mount()
+  h.frame.loadUrl(currentBrowserTarget(legacy)!)
+  await h.guest()
+  expect(h.bridge.acquire).toHaveBeenCalledExactlyOnceWith('https://legacy.example')
+  expect(h.persist.mock.lastCall![0]).toMatchObject({ site: 'https://legacy.example' })
+})
+
+it('clears the live lease\'s partition and reloads the page in a fresh guest without a load failure', async () => {
+  const h = fixture()
+  h.mount()
+  h.frame.loadUrl(target)
+  const first = await h.guest()
+  first.emit('dom-ready')
+  first.state.url = target.url
+  first.emit('did-navigate')
+  h.bridge.clearSite.mockImplementationOnce(async () => {
+    // Main closes the guest before erasing its partition.
+    first.emit('destroyed')
+    expect(h.frame.getSnapshot().error).toBeUndefined()
+  })
+  await h.frame.siteData!.clear()
+  expect(h.bridge.clearSite).toHaveBeenCalledExactlyOnceWith(h.reservation.lease)
+  const second = await h.guest()
+  expect(second.element).not.toBe(first.element)
+  expect(h.bridge.acquire).toHaveBeenLastCalledWith('https://example.test')
+  second.emit('dom-ready')
+  expect(second.loadURL).toHaveBeenCalledWith(target.url)
+  expect(h.frame.getSnapshot().error).toBeUndefined()
+
+  h.bridge.clearSite.mockRejectedValueOnce(new Error('cleanup failed'))
+  await expect(h.frame.siteData!.clear()).rejects.toThrow('cleanup failed')
+  await vi.waitFor(() => { expect(h.guests).toHaveLength(3) })
+})
+
+it('refuses to clear without a live guest', async () => {
+  const h = fixture()
+  await expect(h.frame.siteData!.clear()).rejects.toThrow('Guest not available')
+  expect(h.bridge.clearSite).not.toHaveBeenCalled()
 })
 
 it('contains acquisition, native command and release failures and keeps retry available', async () => {
