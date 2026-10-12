@@ -60,6 +60,7 @@ kind: "package-reference"
 | `url` / `headers` | — | streamable-http：端点 URL 与额外请求标头 |
 | `toolCallTimeoutMs` | `60,000` | 每次 `tools/call` 或资源请求的超时 |
 | `maxInstructionBytes` | `32,768` | 包括服务器归属信息在内的服务器指令 UTF-8 字节上限；超出时连接失败 |
+| `maxPresentationMetaBytes` | `65,536` | 单个结果 `dsh/presentation` 负载序列化后的 UTF-8 字节上限；超出时丢弃 |
 | `failOnStartupError` | `false` | 初始连接或工具同步失败时拒绝插件激活 |
 | `reconnect.enabled` | `true` | 连接丢失后自动重新连接 |
 | `reconnect.initialDelayMs` | `500` | 首次重连延迟；每次连续失败尝试翻倍 |
@@ -85,6 +86,8 @@ kind: "package-reference"
 模型调用 MCP 工具时，调用会以每次调用超时（默认 60 秒）发往远程服务器，并像其他工具调用一样可以取消。结果按块顺序以普通文本返回；资源链接以文本形式显示名称与 URI。如果服务器报告错误，调用会明确失败——模型不会看到虚假的成功。
 
 当前模型接受图片输入且 harness 启用了附件功能时支持图片；图片会像其他图片一样出现在对话中。不支持图片时——以及服务器返回音频或嵌入资源时——模型会看到清晰的诊断消息，而不是什么都没有。
+
+服务器可以在单个结果上标注展示数据：`_meta` 的 `dsh/presentation` 键下一个 JSON 对象。序列化后不超过 `maxPresentationMetaBytes` 的标注对象会作为结果的展示元数据（`meta`）持久化，宿主可以按工具名渲染业务卡片；模型看不到它。没有该键、值不是对象、或超出上限时结果不带展示元数据；超限负载还会记录一条只含工具名与字节数、不含内容的诊断。`structuredContent` 本身绝不会被视为展示数据。
 
 ### 启动、工具更新与重连
 
@@ -121,7 +124,7 @@ kind: "package-reference"
 | [`src/transport.ts`](src/transport.ts) | 传输工厂：带清洗环境的 stdio spawn、Streamable HTTP |
 | — | 不发布运行时不变式伴生入口；MCP 世代会通过工具注册表发挥作用，但桥接在异步重新同步后不提供独立的服务器工具映射快照。 |
 
-导出的 `createMcpToolDefinition(ctx, options)` 将上游工具 schema 和原始结果回调适配到相同的规范值、错误和持久化图像投影。每次回调都收到原样的 `ToolExecution`，包括其 Agent 和取消信号；SDK 的规范类型校验会在投影前检查返回结果。调用方负责注册、取消截止时间和提供方卸载。原生 Cua Driver 提供方使用此适配函数，无需打开 MCP 传输。
+导出的 `createMcpToolDefinition(ctx, options)` 将上游工具 schema 和原始结果回调适配到相同的规范值、错误和持久化图像投影。每次回调都收到原样的 `ToolExecution`，包括其 Agent 和取消信号；SDK 的规范类型校验会在投影前检查返回结果。调用方负责注册、取消截止时间和提供方卸载；只有选项设置了 `maxPresentationMetaBytes` 时，定义才会投影 `dsh/presentation`。原生 Cua Driver 提供方使用此适配函数，无需打开 MCP 传输。
 
 ### 生命周期与同步
 
@@ -131,7 +134,7 @@ SDK 通过旧版通知或现代协议订阅接收工具列表变化。监督器�
 
 ### 工具执行内部细节
 
-工具调用向 SDK 提供原始名称、完整工具定义、JSON 参数、取消信号及配置的超时。SDK 负责协议校验、已声明输出 schema 的校验和现代协议请求 header。成功结果规范值为 `{ content: JsonValue[], structuredContent? }`，为编程调用方及 PTC 模式保留有效的 MCP JSON 块。MCP `isError` 结果会在图片持久化前抛出。桥接器在保存前校验整批图片；拒绝时将每张图片投影为诊断文本。
+工具调用向 SDK 提供原始名称、完整工具定义、JSON 参数、取消信号及配置的超时。SDK 负责协议校验、已声明输出 schema 的校验和现代协议请求 header。成功结果规范值为 `{ content: JsonValue[], structuredContent? }`，为编程调用方及 PTC 模式保留有效的 MCP JSON 块。结果 `_meta` 在 `dsh/presentation` 键下携带序列化后不超过配置字节上限的 JSON 对象时，该对象按执行暂存在规范值之外，由 `output.presentationMeta` 返回为可回放的展示元数据，因此 PTC 模式的声明与值都不包含它；其他任何 `_meta` 内容都不投影，超限负载被丢弃并记录一条含工具名与字节数、不含内容的诊断。MCP `isError` 结果会在图片持久化前抛出。桥接器在保存前校验整批图片；拒绝时将每张图片投影为诊断文本。
 
 ### 环境清洗（stdio）
 

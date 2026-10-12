@@ -60,6 +60,7 @@ Add one entry per server; nothing else is required. After the harness starts, th
 | `url` / `headers` | — | streamable-http: endpoint URL and extra request headers |
 | `toolCallTimeoutMs` | `60,000` | Timeout per `tools/call` or resource request |
 | `maxInstructionBytes` | `32,768` | Maximum UTF-8 bytes of server instructions including attribution; an oversized value rejects the connection |
+| `maxPresentationMetaBytes` | `65,536` | Maximum UTF-8 bytes of one serialized `dsh/presentation` result payload; a larger payload is dropped |
 | `failOnStartupError` | `false` | Reject plugin activation when the initial connection or tool synchronization fails |
 | `reconnect.enabled` | `true` | Reconnect automatically after a lost connection |
 | `reconnect.initialDelayMs` | `500` | First reconnect delay; doubles per consecutive failed attempt |
@@ -85,6 +86,8 @@ The model sees each tool under a stable server-qualified name: `mcp__<serverName
 When the model calls an MCP tool, the call runs against the remote server with a per-call timeout (default 60 seconds) and can be cancelled like any other tool call. The result comes back as ordinary text in block order; resource links appear as text with their name and URI. If the server reports an error, the call fails visibly — the model does not see a fake success.
 
 Images are supported when the current model accepts image input and the harness attachment feature is enabled; they then appear in the conversation like other images. Otherwise — and for audio or embedded resources — the model sees a clear diagnostic message instead of nothing.
+
+A server can mark presentation data on one result: a JSON object under the `dsh/presentation` key of the result's `_meta`. The harness persists a marked object within `maxPresentationMetaBytes` of serialized JSON as the result's presentation metadata (`meta`), which the host can render as that tool's business card; the model never sees it. A missing key, a non-object value, or a larger payload keeps the result presentation-free; an oversize payload also logs one diagnostic naming the tool and the sizes, never the payload. The `structuredContent` itself is never treated as presentation data.
 
 ### Startup, updates, and reconnection
 
@@ -121,7 +124,7 @@ This section explains the design decisions behind the bridge and points at the c
 | [`src/transport.ts`](src/transport.ts) | Transport factory: stdio spawn with scrubbed env, Streamable HTTP |
 | — | No runtime invariant companion is published; MCP generations contribute through the tool registry, but the bridge exposes no independent server-to-tool snapshot after an asynchronous resync. |
 
-The exported `createMcpToolDefinition(ctx, options)` adapts an upstream tool schema and raw-result callback to the same canonical values, errors, and durable image projection. Each callback receives the exact `ToolExecution`, including its Agent and cancellation signal; SDK spec-type validation checks its result before projection. Callers own registration, cancellation deadlines, and provider teardown. The native Cua Driver provider uses this adapter without opening an MCP transport.
+The exported `createMcpToolDefinition(ctx, options)` adapts an upstream tool schema and raw-result callback to the same canonical values, errors, and durable image projection. Each callback receives the exact `ToolExecution`, including its Agent and cancellation signal; SDK spec-type validation checks its result before projection. Callers own registration, cancellation deadlines, and provider teardown; a definition projects `dsh/presentation` only when its options set `maxPresentationMetaBytes`. The native Cua Driver provider uses this adapter without opening an MCP transport.
 
 ### Lifecycle and sync
 
@@ -131,7 +134,7 @@ The SDK receives tool-list changes through legacy notifications or a modern subs
 
 ### Tool execution internals
 
-A tool call uses the SDK with the raw name, complete tool definition, JSON arguments, abort signal, and configured timeout. The SDK owns protocol validation, advertised output-schema validation, and modern request headers. Canonical success is `{ content: JsonValue[], structuredContent? }`, preserving valid MCP JSON blocks for programmatic and PTC mode callers. An MCP `isError` result throws before image persistence. The bridge validates each image batch before saving it; a refusal projects every image as diagnostic text.
+A tool call uses the SDK with the raw name, complete tool definition, JSON arguments, abort signal, and configured timeout. The SDK owns protocol validation, advertised output-schema validation, and modern request headers. Canonical success is `{ content: JsonValue[], structuredContent? }`, preserving valid MCP JSON blocks for programmatic and PTC mode callers. A JSON object under `dsh/presentation` in the result's `_meta`, within the configured serialized-byte cap, is staged per execution outside the canonical value and returned by `output.presentationMeta` as replayable presentation metadata, so PTC mode declarations and values never include it; any other `_meta` content projects nothing, and an oversize payload is dropped with a diagnostic naming the tool and the sizes, not the payload. An MCP `isError` result throws before image persistence. The bridge validates each image batch before saving it; a refusal projects every image as diagnostic text.
 
 ### Environment scrubbing (stdio)
 

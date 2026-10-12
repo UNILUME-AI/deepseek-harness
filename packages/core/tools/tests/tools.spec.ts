@@ -198,6 +198,37 @@ describe('ToolRuntime', () => {
     expect('meta' in result).toBe(false)
   })
 
+  it('passes the body execution to the projector and omits meta when it returns undefined', async () => {
+    const ctx = await setup()
+    const bodyExecs: object[] = []
+    ctx.tools.register({
+      ...echoTool,
+      name: 'void-meta-tool',
+      output: {
+        ...echoTool.output,
+        presentationMeta: (args, _value, exec) => {
+          expect(exec).toBe(bodyExecs.at(-1))
+          return (args as { omit?: boolean }).omit === true ? undefined : { card: true }
+        },
+      },
+      async execute(_args, exec) {
+        bodyExecs.push(exec)
+        return 'ok'
+      },
+    })
+    const omitted = await ctx.tools.execute({
+      signal: testToolSignal, callId: ToolCallId('c1'), name: 'void-meta-tool', arguments: { omit: true },
+    })
+    expect(omitted).toEqual({ content: [{ type: 'text', text: 'ok' }], isError: false, value: 'ok' })
+    expect('meta' in omitted).toBe(false)
+    const projected = await ctx.tools.execute({
+      signal: testToolSignal, callId: ToolCallId('c2'), name: 'void-meta-tool', arguments: { omit: false },
+    })
+    expect(projected).toEqual({
+      content: [{ type: 'text', text: 'ok' }], isError: false, meta: { card: true }, value: 'ok',
+    })
+  })
+
   it('normalizes a contract-violating non-cloneable result before final notification', async () => {
     const ctx = await setup()
     let observedError: boolean | undefined

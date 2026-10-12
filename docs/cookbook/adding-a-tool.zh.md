@@ -45,7 +45,7 @@ export function apply(ctx: Context) {
 - **声明并返回一个规范 JSON 值。** `output.schema` 使用 `ValueSchemaSpec`，根可以是对象、数组、标量或 null。`execute` 只返回推导出的值；注册表将其快照为无损 JSON，完成校验和冻结后，再传给 `output.render(args, value)`。工具主体不要返回内容块，也不要迫使调用方从自然语言中解析 id 和字段。
 - **抛出异常或返回无效值意味着 `isError`。** 注册表会捕获异常，并在观察者运行前收敛 schema、渲染器、元数据投影器和无损 JSON 失败。基础设施故障请抛异常。成功的领域结果即使表示不理想的状态，也应写入规范值；其 Native 渲染器可以解释该状态，例如进程以非零状态退出。
 - **遵守 `exec.signal`。** 信号触发时取消进行中的工作。
-- **使用 `presentationMeta` 投影持久化的卡片数据（可选）。** `output.presentationMeta(args, value)` 从同一个规范值派生可回放的 JSON。核心将其持久化在 `tool/result` 上并传给 `presentResult`，因此需要结果期事实的卡片——例如 `write`／`edit` 的已应用 hunk——无需持久化规范值也能在回放中重现。嵌套 Code 分发没有卡片，因此会跳过该投影器。
+- **使用 `presentationMeta` 投影持久化的卡片数据（可选）。** `output.presentationMeta(args, value)` 从同一个规范值派生可回放的 JSON。核心将其持久化在 `tool/result` 上并传给 `presentResult`，因此需要结果期事实的卡片——例如 `write`／`edit` 的已应用 hunk——无需持久化规范值也能在回放中重现。第三个参数是函数体收到的同一个执行，因此执行期的展示数据可以留在规范值之外。返回 `undefined` 表示该次结果不附带展示元数据。嵌套 Code 分发没有卡片，因此会跳过该投影器。
 - **使用 `exec.agent` 发送异步通知。** `agent.inject({ content, source: { kind: 'plugin', plugin: '<name>' } })` 追加持久化上下文，下一次模型请求会看到它——这不是唤醒（空闲的 agent（智能体）保持空闲）。请防范已 dispose 的 agent（try/catch）。
 
 ## 长时间运行的工作

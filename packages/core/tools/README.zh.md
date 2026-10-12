@@ -88,7 +88,7 @@ ctx.tools.register(defineTool({
 
 ### Host 展示描述
 
-工具可以为 Host 本地消费方保留纯函数 `presentCall()` 与 `presentResult()` 方法。内置 Web Client 不消费这些值，而是通过 `tool.call.toolview` 选择 renderer，并从原始调用参数、结果内容、失败状态与持久 metadata 派生 card props。[Client 派生展示决策](../../../.agents/notes/implemented/architecture/2026-08-23-client-derived-tool-presentation.zh.md)负责该 transport 拆分。
+工具可以为 Host 本地消费方保留纯函数 `presentCall()` 与 `presentResult()` 方法。`output.presentationMeta(args, value, exec)` 为顶层调用投影一份持久化在结果上的可回放 JSON；`exec` 是函数体收到的同一个执行，返回 `undefined` 表示该次调用不附带。内置 Web Client 不消费这些值，而是通过 `tool.call.toolview` 选择 renderer，并从原始调用参数、结果内容、失败状态与持久 metadata 派生 card props。[Client 派生展示决策](../../../.agents/notes/implemented/architecture/2026-08-23-client-derived-tool-presentation.zh.md)负责该 transport 拆分。
 
 -----
 

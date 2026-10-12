@@ -17,7 +17,7 @@ import { ToolCallId, LlmAdapter, LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmModelInfo, LlmResolvedModelInfo, Message, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
-import type { Config as ToolConfig } from '@deepseek-ai/dsh-tools'
+import type { Config as ToolConfig, ToolExecution } from '@deepseek-ai/dsh-tools'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as FsPolicy from '@deepseek-ai/dsh-fs-observation-policy'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
@@ -824,13 +824,21 @@ describe('image result presentation', () => {
     name: 'card.png',
   }
   const VALUE = { path: '/w/app/shots/card.png', image: REF }
+  const EXEC: ToolExecution = {
+    signal: new AbortController().signal,
+    token: Symbol('read-image-meta') as ToolExecution['token'],
+    callId: ToolCallId('read-image-meta'),
+    rootCallId: ToolCallId('read-image-meta'),
+    name: 'read_image',
+    arguments: {},
+  }
 
   it('persists the path only, leaving the reference to the result content', async () => {
     // The settled content already carries the image block with the complete
     // reference, so copying it into meta would keep two records of one fact and a
     // post-execute content replacement would strand the stale copy.
     const ctx = await setup()
-    const meta = ctx.tools.get('read_image')?.output.presentationMeta?.({ file_path: 'shots/card.png' }, VALUE)
+    const meta = ctx.tools.get('read_image')?.output.presentationMeta?.({ file_path: 'shots/card.png' }, VALUE, EXEC)
     expect(meta).toEqual({ path: VALUE.path })
   })
 

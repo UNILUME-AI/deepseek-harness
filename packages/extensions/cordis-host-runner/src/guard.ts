@@ -563,7 +563,7 @@ export function sandboxDefineTool(options: unknown): ToolDefinition {
   const schema = cloneJson(output.schema, 'harness.defineTool output.schema')
   const rawExecute = options.execute as (args: unknown, exec: unknown) => Promise<unknown>
   const rawRender = output.render as (args: unknown, value: unknown) => unknown
-  const rawPresentationMeta = output.presentationMeta as ((args: unknown, value: unknown) => unknown) | undefined
+  const rawPresentationMeta = output.presentationMeta as ((args: unknown, value: unknown, exec: unknown) => unknown) | undefined
   const erasedDefineTool = defineTool as (definition: unknown) => ToolDefinition
   const tool = erasedDefineTool({
     ...options,
@@ -574,8 +574,12 @@ export function sandboxDefineTool(options: unknown): ToolDefinition {
         return assertRenderedContent(cloneJson(rawRender(args, value), 'harness.defineTool output.render result') as JsonValue)
       },
       ...rawPresentationMeta !== undefined ? {
-        presentationMeta(args: unknown, value: unknown): JsonValue {
-          return cloneJson(rawPresentationMeta(args, value), 'harness.defineTool output.presentationMeta result') as JsonValue
+        // `undefined` opts one call out of presentation metadata and skips the
+        // clone, which rejects undefined everywhere else.
+        presentationMeta(args: unknown, value: unknown, exec: unknown): JsonValue | undefined {
+          const projected = rawPresentationMeta(args, value, exec)
+          if (projected === undefined) return undefined
+          return cloneJson(projected, 'harness.defineTool output.presentationMeta result') as JsonValue
         },
       } : {},
     },

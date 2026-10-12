@@ -493,8 +493,12 @@ export interface DefineToolOptions<S extends ParameterSchemaSpec, O extends Valu
     readonly schema: O
     /** Pure Native/model rendering of one validated canonical value. */
     render(args: InferArgs<S>, value: InferValue<NoInfer<O>>): ContentBlock[]
-    /** Pure replayable presentation metadata for direct top-level calls. */
-    presentationMeta?(args: InferArgs<S>, value: InferValue<NoInfer<O>>): JsonValue
+    /**
+     * Pure replayable presentation metadata for direct top-level calls.
+     * Returning `undefined` attaches no presentation metadata to that result.
+     * `exec` is the execution the body received.
+     */
+    presentationMeta?(args: InferArgs<S>, value: InferValue<NoInfer<O>>, exec: Readonly<ToolExecution>): JsonValue | undefined
   }
   /** Requests deferred loading of the tool definition; see {@link @deepseek-ai/dsh-llm#ToolSchema.deferLoading}. */
   readonly deferLoading?: true
@@ -587,8 +591,8 @@ export function defineTool<const S extends ParameterSchemaSpec, const O extends 
         return userRender(args as InferArgs<S>, value as InferValue<NoInfer<O>>)
       },
       ...userPresentationMeta !== undefined ? {
-        presentationMeta(args: unknown, value: JsonValue): JsonValue {
-          return userPresentationMeta(args as InferArgs<S>, value as InferValue<NoInfer<O>>)
+        presentationMeta(args: unknown, value: JsonValue, exec: Readonly<ToolExecution>): JsonValue | undefined {
+          return userPresentationMeta(args as InferArgs<S>, value as InferValue<NoInfer<O>>, exec)
         },
       } : {},
     },

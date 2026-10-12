@@ -48,6 +48,9 @@ export const RECONNECT_DEFAULTS: Required<ReconnectConfig> = Object.freeze({
 /** Default UTF-8 byte limit for attributed server instructions. */
 export const DEFAULT_MAX_INSTRUCTION_BYTES = 32_768
 
+/** Default UTF-8 byte limit for one serialized `dsh/presentation` payload. */
+export const DEFAULT_MAX_PRESENTATION_META_BYTES = 65_536
+
 // The SDK's stdio transport owns two two-second termination grace periods.
 // Keep one additional second for the process-close event that proves the old
 // generation is gone; timing out fails closed instead of overlapping children.
@@ -131,6 +134,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     registrationFailure: 'contain',
     serverName: config.serverName,
     toolCallTimeoutMs: config.toolCallTimeoutMs,
+    maxPresentationMetaBytes: config.maxPresentationMetaBytes ?? DEFAULT_MAX_PRESENTATION_META_BYTES,
   }
   // The initial sync uses 'throw' when failOnStartupError is configured, so
   // a registration conflict propagates to the startup-await path. Re-syncs

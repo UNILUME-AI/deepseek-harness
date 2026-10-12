@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import { sandboxDefineTool } from '../src/guard.ts'
 import { syntaxErrorContext } from '../src/sandbox.ts'
 import { AGENT_A, call, CONTENT_OUTPUT_CODE, mount, setup, text, running } from './helpers.ts'
@@ -38,6 +40,58 @@ describe('dynamic tool declaration boundary', () => {
       execute: async () => 'ok',
     })
     expect(() => definition.output.render({}, 'ok')).toThrow(/output\.render returned \["x+…/)
+  })
+
+  it('clones a dynamic presentation projection and passes an undefined one through', () => {
+    const definition = sandboxDefineTool({
+      name: 'meta-probe',
+      description: 'meta probe',
+      parameters: {},
+      output: {
+        schema: { type: 'string' },
+        render: () => [],
+        presentationMeta: (_args: unknown, value: unknown) => value === 'card' ? { card: value } : undefined,
+      },
+      execute: async () => 'ok',
+    })
+    const exec: ToolExecution = {
+      signal: new AbortController().signal,
+      token: Symbol('meta-probe') as ToolExecution['token'],
+      callId: ToolCallId('meta-probe'),
+      rootCallId: ToolCallId('meta-probe'),
+      name: 'meta-probe',
+      arguments: {},
+    }
+    expect(definition.output.presentationMeta?.({}, 'card', exec)).toEqual({ card: 'card' })
+    expect(definition.output.presentationMeta?.({}, 'other', exec)).toBeUndefined()
+  })
+
+  it('forwards the execution to a dynamic presentation projection', () => {
+    const seen: unknown[] = []
+    const definition = sandboxDefineTool({
+      name: 'meta-exec',
+      description: 'meta exec probe',
+      parameters: {},
+      output: {
+        schema: { type: 'string' },
+        render: () => [],
+        presentationMeta: (_args: unknown, _value: unknown, exec: unknown) => {
+          seen.push(exec)
+          return undefined
+        },
+      },
+      execute: async () => 'ok',
+    })
+    const exec: ToolExecution = {
+      signal: new AbortController().signal,
+      token: Symbol('meta-exec') as ToolExecution['token'],
+      callId: ToolCallId('meta-exec'),
+      rootCallId: ToolCallId('meta-exec'),
+      name: 'meta-exec',
+      arguments: {},
+    }
+    definition.output.presentationMeta?.({}, 'x', exec)
+    expect(seen).toEqual([exec])
   })
 })
 
