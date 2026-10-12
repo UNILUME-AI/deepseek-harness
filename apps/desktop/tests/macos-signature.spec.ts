@@ -129,12 +129,38 @@ describe('desktop macOS release signature', () => {
     })
   })
 
-  it('rejects unsigned macOS builds and malformed signing modes', async () => {
+  it('accepts unsigned macOS builds for local validation and rejects malformed signing modes', async () => {
     const { createElectronBuilderConfig } = await import('../electron-builder.config.mjs')
-    expect(() => createElectronBuilderConfig({ ...RELEASE_ENVIRONMENT, DSH_DESKTOP_UNSIGNED: '1' }))
-      .toThrow(/unsigned builds require Windows/u)
+    // Unsigned local validation needs no signing or notarization credentials.
+    const unsignedEnvironment = {
+      ...RELEASE_ENVIRONMENT,
+      DSH_DESKTOP_MACOS_SIGNING_IDENTITY: undefined,
+      DSH_DESKTOP_MACOS_TEAM_ID: undefined,
+      APPLE_API_KEY: undefined,
+      APPLE_API_KEY_ID: undefined,
+      APPLE_API_ISSUER: undefined,
+      DSH_DESKTOP_UNSIGNED: '1',
+    }
+    const config = createElectronBuilderConfig(unsignedEnvironment, 'darwin', 'arm64')
+    expect(portablePath(config.directories.output)).toContain('/targets/mac-arm64/unsigned-artifacts')
+    expect(config.artifactName).toContain('-unsigned')
+    expect(config).toMatchObject({
+      mac: { identity: null, forceCodeSigning: false, hardenedRuntime: false, notarize: false },
+      dmg: { sign: false },
+      publish: null,
+    })
+    // Without the explicit switch the same credential-free environment still fails signing.
+    for (const disabled of ['0', undefined]) {
+      expect(() => createElectronBuilderConfig({ ...unsignedEnvironment, DSH_DESKTOP_UNSIGNED: disabled }, 'darwin', 'arm64'))
+        .toThrow(/DSH_DESKTOP_MACOS_SIGNING_IDENTITY must be set/u)
+    }
     expect(() => createElectronBuilderConfig({ ...RELEASE_ENVIRONMENT, DSH_DESKTOP_UNSIGNED: 'yes' }))
       .toThrow(/must be 0 or 1/u)
+    expect(() => createElectronBuilderConfig({
+      ...RELEASE_ENVIRONMENT,
+      DSH_DESKTOP_TARGET_PLATFORM: 'linux',
+      DSH_DESKTOP_UNSIGNED: '1',
+    })).toThrow(/unsigned builds require macOS or Windows/u)
   })
 
   it('accepts the configured authority and team', () => {

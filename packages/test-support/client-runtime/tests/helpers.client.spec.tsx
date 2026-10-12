@@ -86,12 +86,15 @@ describe('fixture helpers', () => {
       view.update({ label: 'next' })
       expect(view.container.textContent).toBe('next:custom')
       const replacement = createSnapshotStore<PanelInfo>({ activePanelId: null })
-      await act(async () => {
-        runtime.releasePanelInfoSource()
-        await runtime.mount({
-          inject: ['slots'],
-          apply(ctx) { ctx.slots.provideRoot({ hooks: { panelInfo: replacement } }) },
-        })
+      // React 19 renders a root roster change at the next microtask even inside
+      // act(), so the mounted consumer would see the gap between releasing the
+      // default source and an asynchronous plugin apply; swap in one step.
+      await runtime.mount({
+        inject: ['slots'],
+        apply(ctx) {
+          runtime.releasePanelInfoSource()
+          ctx.slots.provideRoot({ hooks: { panelInfo: replacement } })
+        },
       })
       expect(view.container.textContent).toBe('next:conversation')
     } finally {
