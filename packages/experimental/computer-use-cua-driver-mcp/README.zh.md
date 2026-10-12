@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-当 Cua Driver 已在运行 DSH 的同一台机器上安装并配置好时，选择此提供者。平台设置以[上游安装和权限指南](https://github.com/trycua/cua/blob/cua-driver-rs-v0.28.0/libs/cua-driver/README.md)为准。
+当 Cua Driver 已在运行 DSH 的同一台机器上安装并配置好时，选择此提供者。平台设置以[上游安装和权限指南](https://github.com/trycua/cua/blob/cua-driver-rs-v0.34.1/libs/cua-driver/README.md)为准。
 
 ### 最小配置
 
@@ -85,7 +85,7 @@ pnpm run test:e2e packages/experimental/computer-use-cua-driver-mcp/tests/instal
 
 - [计算机使用服务](../../computer-use/computer-use/README.zh.md) — 独占具名注册。
 - [MCP 客户端](../../mcp/mcp-client/README.zh.md) — 协议发现、执行和图像行为。
-- [Cua Driver](https://github.com/trycua/cua/blob/cua-driver-rs-v0.28.0/libs/cua-driver/README.md) — 上游可执行程序和平台设置。
+- [Cua Driver](https://github.com/trycua/cua/blob/cua-driver-rs-v0.34.1/libs/cua-driver/README.md) — 上游可执行程序和平台设置。
 
 -----
 

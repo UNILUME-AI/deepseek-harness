@@ -25,7 +25,7 @@ Let the model operate the local desktop through an already installed Cua Driver.
 <a id="use-this-package"></a>
 ## Use this package
 
-Choose this provider when Cua Driver is already installed and configured on the same machine as DSH. The [upstream installation and permissions guide](https://github.com/trycua/cua/blob/cua-driver-rs-v0.28.0/libs/cua-driver/README.md) owns platform setup.
+Choose this provider when Cua Driver is already installed and configured on the same machine as DSH. The [upstream installation and permissions guide](https://github.com/trycua/cua/blob/cua-driver-rs-v0.34.1/libs/cua-driver/README.md) owns platform setup.
 
 ### Minimal configuration
 
@@ -85,7 +85,7 @@ pnpm run test:e2e packages/experimental/computer-use-cua-driver-mcp/tests/instal
 
 - [Computer-use service](../../computer-use/computer-use/README.md) — exclusive named registration.
 - [MCP client](../../mcp/mcp-client/README.md) — protocol discovery, execution, and image behavior.
-- [Cua Driver](https://github.com/trycua/cua/blob/cua-driver-rs-v0.28.0/libs/cua-driver/README.md) — upstream executable and platform setup.
+- [Cua Driver](https://github.com/trycua/cua/blob/cua-driver-rs-v0.34.1/libs/cua-driver/README.md) — upstream executable and platform setup.
 
 -----
 
