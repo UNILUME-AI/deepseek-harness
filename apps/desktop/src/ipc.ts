@@ -1,7 +1,7 @@
 /** Typed preload operations exposed only by the Electron shell. */
 
 import type { DesktopKeyboardApi, DesktopShortcutsApi } from '@deepseek-ai/dsh-client-shortcuts/protocol'
-import type { IpcMainInvokeEvent } from 'electron'
+import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron'
 import type { DesktopBrowserBridge, DesktopCredentialsBridge } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
 
 /** IPC channel names kept private to the desktop application bundle. */
@@ -20,6 +20,10 @@ export const DESKTOP_IPC = {
   browserAcquire: 'dsh-desktop:browser-acquire',
   browserRelease: 'dsh-desktop:browser-release',
   browserOpenRequested: 'dsh-desktop:browser-open-requested',
+  browserActivated: 'dsh-desktop:browser-activated',
+  browserDeactivated: 'dsh-desktop:browser-deactivated',
+  browserVisibilityQuery: 'dsh-desktop:browser-visibility-query',
+  browserVisibilityAnswer: 'dsh-desktop:browser-visibility-answer',
   directoryPick: 'dsh-desktop:directory-pick',
   deviceInfo: 'dsh-desktop:device-info',
   localeBootstrap: 'dsh-desktop:locale-bootstrap',
@@ -96,10 +100,10 @@ export const SCHEME = 'dsh-app'
 
 /**
  * Reject IPC outside the allowed Desktop document origins.
- * @param event - IPC caller whose frame URL supplies the origin.
+ * @param event - IPC caller whose frame URL supplies the origin; invoke and event channels both qualify.
  * @param hostnames - Desktop document hosts allowed for this operation.
  */
-export function assertDesktopSender(event: IpcMainInvokeEvent, hostnames: readonly string[]): void {
+export function assertDesktopSender(event: IpcMainInvokeEvent | IpcMainEvent, hostnames: readonly string[]): void {
   const senderFrame = event.senderFrame
   if (senderFrame === null) throw new Error('dsh desktop: rejected IPC without a sender frame')
   const url = new URL(senderFrame.url)

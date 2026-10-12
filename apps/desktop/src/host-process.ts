@@ -3,6 +3,8 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
 import type { PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
+import { CREDENTIAL_FILL_FIELDS, type CredentialRequestMessage } from '@deepseek-ai/dsh-desktop-credential-tools/protocol'
+import type { DesktopCredentialHostRequest, DesktopCredentialHostResponse } from './credential-host.ts'
 import { desktopNodeEnvironment } from './node-environment.ts'
 
 interface ReadyEvent {
@@ -34,10 +36,18 @@ type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | { reado
   readonly activeTasks: boolean
   readonly scheduledTasks: boolean
   readonly error?: string
-}
+} | CredentialRequestEvent
+
+/**
+ * A Host-initiated credential request; the shell answers over the same channel with
+ * categories only. The single protocol declaration lives in the shared
+ * `@deepseek-ai/dsh-desktop-credential-tools/protocol` module both processes import.
+ */
+type CredentialRequestEvent = CredentialRequestMessage
 
 /** Correlated answer to one shell control request. */
-type DesktopHostControlResponse = Extract<DesktopHostEvent, { readonly requestId: number }>
+type DesktopHostControlResponse = Extract<DesktopHostEvent, { readonly requestId: number; readonly active: boolean }
+  | { readonly requestId: number; readonly activeTasks: boolean }>
 
 /** What quitting now would affect, as reported by the Host. */
 export interface DesktopQuitInspection {
@@ -85,6 +95,14 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
     case 'quit-inspection':
       return Number.isSafeInteger(candidate.requestId) && typeof candidate.activeTasks === 'boolean'
         && typeof candidate.scheduledTasks === 'boolean' && (candidate.error === undefined || typeof candidate.error === 'string')
+    case 'credentials-list':
+      return Number.isSafeInteger(candidate.requestId)
+    case 'credentials-fill':
+      // fields arrive from a model-facing tool call; the shell validates the entry id at the vault.
+      return Number.isSafeInteger(candidate.requestId) && typeof candidate.credentialId === 'string'
+        && Array.isArray(candidate.fields) && candidate.fields.length > 0 && candidate.fields.length <= 3
+        && candidate.fields.every((field: unknown) => typeof field === 'string'
+          && (CREDENTIAL_FILL_FIELDS as readonly string[]).includes(field))
     default:
       return false
   }
@@ -165,6 +183,7 @@ export class DesktopHostProcess {
    *   `office-skills` resources fail Host startup.
    * @param packageManager - Bundled pnpm entry and Node launcher directory, scoped to package operations.
    * @param onPlatformSession - Private credential updates for embedded Platform views.
+   * @param onCredentialRequest - Host-initiated credential list/fill requests; absent answers `unavailable`.
    */
   constructor(
     private readonly node: string,
@@ -177,6 +196,7 @@ export class DesktopHostProcess {
     private readonly packageManager?: { readonly pnpm: string; readonly nodeBin: string },
 
     private readonly onPlatformSession?: (session: PlatformSession | null) => void,
+    private readonly onCredentialRequest?: (request: DesktopCredentialHostRequest) => Promise<DesktopCredentialHostResponse>,
   ) {}
 
   /**
@@ -216,6 +236,9 @@ export class DesktopHostProcess {
         else this.fail(new Error('dsh desktop host acknowledged an unrequested shutdown'))
       }
       else if (message.type === 'fatal') this.fail(new DesktopHostFatalError(message.message, message.diagnostic))
+      else if (message.type === 'credentials-list' || message.type === 'credentials-fill') {
+        this.answerCredentialRequest(child, message)
+      }
       else {
         const request = this.controlRequests.get(message.requestId)
         if (message.error === undefined) request?.resolve(message)
@@ -232,6 +255,33 @@ export class DesktopHostProcess {
       })
     })
     return this.readyPromise
+  }
+
+  /**
+   * Answer one Host credential request; the reply carries metadata, field names, or one error
+   * category and never a credential value or local diagnostic text.
+   * @param child - live Host process.
+   * @param request - validated credential request envelope.
+   */
+  private answerCredentialRequest(child: ChildProcess, request: CredentialRequestEvent): void {
+    const { type, requestId } = request
+    const reply = (response: DesktopCredentialHostResponse): void => {
+      if (!child.connected) return
+      child.send({ type, requestId, ...response }, (error) => {
+        if (error !== null) console.error('dsh desktop host credential reply failed', error)
+      })
+    }
+    const handler = this.onCredentialRequest
+    if (handler === undefined || this.failureReported || this.stopping) {
+      reply({ error: 'unavailable' })
+      return
+    }
+    const domain: DesktopCredentialHostRequest = type === 'credentials-list'
+      ? { type }
+      : { type, credentialId: request.credentialId, fields: request.fields }
+    void Promise.resolve()
+      .then(() => handler(domain))
+      .then(reply, () => { reply({ error: 'error' }) })
   }
 
   /**

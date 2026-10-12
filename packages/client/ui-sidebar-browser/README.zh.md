@@ -55,7 +55,7 @@ Electron 主进程把 `credential-vault.json` 保存在 `app.getPath('userData')
 
 每次代填都需要主窗口的批准弹窗，列明站点、条目与字段；macOS 上触控 ID 可用时，批准后必须完成指纹验证。主进程在批准前和注入前严格核对规范化 origin，隔离世界脚本还会核对实际文档 origin。敏感值只在批准后解密，仅为代填进入 guest，不通过 IPC 返回、不进入模型、不写日志。首次新增时，输入值必然短暂存在于本机表单和新增 IPC 中。
 
-代填只查找顶层文档中可见的输入框，触发 input/change 事件，不提交表单。不会遍历 iframe 或 shadow root；特殊或分段表单可能需要手动填写。填入后，目标站点可以读取这些值。动态验证码支持 SHA1/SHA256/SHA512、6–8 位数字和正整数周期。本功能不提供模型工具、站点持久会话、外部密码管理器接入或短信转发；原生批准与钥匙串行为仍需在目标操作系统验证。
+代填只查找顶层文档中可见的输入框，触发 input/change 事件，不提交表单。不会遍历 iframe 或 shadow root；特殊或分段表单可能需要手动填写。填入后，目标站点可以读取这些值。动态验证码支持 SHA1/SHA256/SHA512、6–8 位数字和正整数周期。在 desktop profile 下，[`@deepseek-ai/dsh-desktop-credential-tools`](../../desktop/credential-tools/README.zh.md) 插件在同一批准与代填路径之上提供只按引用工作的 `credentials_list` / `credentials_fill` 模型工具；渲染进程在标签页可见期间上报激活、隐藏时撤销上报，shell 在每次模型代填前还会复核可见性，隐藏标签页绝不会成为代填目标。本功能仍不提供站点持久会话、外部密码管理器接入或短信转发；原生批准与钥匙串行为仍需在目标操作系统验证。
 
 -----
 

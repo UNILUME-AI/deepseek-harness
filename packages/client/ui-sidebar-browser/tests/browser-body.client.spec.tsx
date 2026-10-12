@@ -15,6 +15,7 @@ import { browserAddressCheckpoint, type BrowserTabState } from '../src/client/br
 import type { BrowserPageFactory, BrowserPageOptions } from '../src/client/browser/BrowserPage.ts'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { emptyBrowserFrame, type BrowserFrameState } from '../src/client/browser/BrowserFrame.ts'
+import type { BrowserCredentials, CredentialId } from '../src/types.ts'
 
 const SESSION = 'session' as SessionId
 const TAB = 'tab' as TabId
@@ -37,14 +38,26 @@ const absentState = {
   getSnapshot: (): BrowserControllerState | undefined => undefined,
 }
 
+const alwaysVisible = {
+  subscribe: (_listener: () => void): (() => void) => () => {},
+  getSnapshot: (): boolean => true,
+}
+
 function mountBrowser(navigation?: { readonly url?: string },
-  options: { initial?: BrowserTabState; createPage?: BrowserPageFactory; refreshShortcut?: ReturnType<BrowserBodyProps['useTabInfo']>['tab']['refreshShortcut'] } = {}) {
+  options: {
+    initial?: BrowserTabState
+    createPage?: BrowserPageFactory
+    refreshShortcut?: ReturnType<BrowserBodyProps['useTabInfo']>['tab']['refreshShortcut']
+    visible?: { subscribe(listener: () => void): () => void; getSnapshot(): boolean }
+    credentials?: BrowserCredentials
+  } = {}) {
   const store = createBrowserStore().create(`browser-body-test-${String(++mountSequence)}`)
   if (options.initial !== undefined) store.actions.replace(TAB, options.initial)
   const lifetime = new AbortController()
   lifetimes.add(lifetime)
   const injected = createBrowserControllers(store.actions, options.createPage ?? createIframePage, () => true)
   controllers.push(injected)
+  const visibleSource = options.visible ?? alwaysVisible
   const { keyedHooks, ...commands } = injected
   const tabActions = { bindCommands: vi.fn<ReturnType<BrowserBodyProps['useTabInfo']>['tab']['actions']['bindCommands']>(() => vi.fn()), openResource: vi.fn(), openTab: vi.fn(), close: vi.fn() }
   const props: Pick<BrowserBodyProps, 'sessionId' | 'useTabInfo' | 'useStore' | 'actions' | 't' | 'useBrowserState'>
@@ -53,7 +66,8 @@ function mountBrowser(navigation?: { readonly url?: string },
       useTabInfo: () => ({
         sidebar: { expanded: true, fullscreen: false }, panel: { id: 'pane' as PaneId },
         tab: {
-          id: TAB, kind: 'browser', title: 'Browser', contentId: 'sidebar://browser/1', visible: true,
+          id: TAB, kind: 'browser', title: 'Browser', contentId: 'sidebar://browser/1',
+          visible: useSyncExternalStore(visibleSource.subscribe, visibleSource.getSnapshot),
           navigation: { address: 'sidebar://browser/1', params: navigation, revision: 0 },
           signal: lifetime.signal,
           actions: tabActions, refreshShortcut: options.refreshShortcut,
@@ -66,6 +80,7 @@ function mountBrowser(navigation?: { readonly url?: string },
         return params === undefined ? template : template.replace(/\{(\w+)\}/g, (_match, name: string) => String(params[name]))
       },
       ...commands,
+      ...(options.credentials === undefined ? {} : { getCredentials: () => options.credentials }),
       useBrowserState: (key: string) => {
         const state = keyedHooks.browserState(key) ?? absentState
         return useSyncExternalStore(state.subscribe, state.getSnapshot)
@@ -87,6 +102,46 @@ afterEach(async () => {
 })
 
 describe('BrowserBody', () => {
+  it('reports its guest as the active browser page only while the tab is visible', async () => {
+    const visible = createSnapshotStore(true)
+    const reportActive = vi.fn()
+    const reportInactive = vi.fn()
+    const credentials: BrowserCredentials = {
+      list: vi.fn(async () => []),
+      add: vi.fn(async () => '00000000-0000-4000-8000-000000000001' as CredentialId),
+      remove: vi.fn(async () => {}),
+      fill: vi.fn(async () => ({ filled: [], notFound: [] })),
+      reportActive,
+      reportInactive,
+    }
+    mountBrowser(undefined, { visible, credentials })
+    await waitFor(() => { expect(reportActive).toHaveBeenCalledTimes(1) })
+    // Hiding the tab (switching the pane or collapsing the sidebar) withdraws activation.
+    act(() => { visible.set(false) })
+    expect(reportActive).toHaveBeenCalledTimes(1)
+    expect(reportInactive).toHaveBeenCalledTimes(1)
+    act(() => { visible.set(true) })
+    await waitFor(() => { expect(reportActive).toHaveBeenCalledTimes(2) })
+    expect(reportInactive).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports a tab inactive when it mounts hidden', () => {
+    const visible = createSnapshotStore(false)
+    const reportActive = vi.fn()
+    const reportInactive = vi.fn()
+    const credentials: BrowserCredentials = {
+      list: vi.fn(async () => []),
+      add: vi.fn(async () => '00000000-0000-4000-8000-000000000001' as CredentialId),
+      remove: vi.fn(async () => {}),
+      fill: vi.fn(async () => ({ filled: [], notFound: [] })),
+      reportActive,
+      reportInactive,
+    }
+    mountBrowser(undefined, { visible, credentials })
+    expect(reportActive).not.toHaveBeenCalled()
+    expect(reportInactive).toHaveBeenCalledTimes(1)
+  })
+
   it('displays the effective browser refresh accelerator', () => {
     const mounted = mountBrowser(undefined, { refreshShortcut: { id: 'page.refresh' as never,
       label: 'Refresh', aliases: [], binding: null, keys: ['Ctrl', 'R'], aria: 'Control+R',
@@ -289,7 +344,7 @@ it('does not show credential controls in the Web iframe provider', () => {
 
 it('shows credential controls when supplied by the desktop page provider', () => {
   const { view } = mountBrowser(undefined, { createPage: options => ({ ...createIframePage(options), credentials: {
-    list: vi.fn(async () => []), add: vi.fn(), remove: vi.fn(), fill: vi.fn(),
+    list: vi.fn(async () => []), add: vi.fn(), remove: vi.fn(), fill: vi.fn(), reportActive: vi.fn(), reportInactive: vi.fn(),
   } }) })
   expect(view.getByRole('button', { name: zh['credentials.open'] })).toBeDefined()
 })
