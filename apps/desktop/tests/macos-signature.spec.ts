@@ -51,7 +51,10 @@ describe('desktop macOS release signature', () => {
       'com.apple.security.cs.disable-library-validation', 'com.apple.security.device.audio-input']) {
       expect(entitlements).toContain(`<key>${key}</key>\n    <true/>`)
     }
-    expect(config.extraResources).toHaveLength(2)
+    // runtime and the second release resource, then the Sidebar browser stand-in executable pair (POSIX only)
+    expect(config.extraResources).toHaveLength(4)
+    expect(config.extraResources.slice(-2).map(resource => resource.to)).toEqual(['sidebar-browser-connect', 'sidebar-browser-connect.mjs'])
+    for (const resource of config.extraResources.slice(-2)) expect(portablePath(resource.from)).toContain('/apps/desktop/resources/sidebar-browser-connect')
     expect(config.extraResources[0]?.to).toBe('runtime')
     expect(portablePath(config.extraResources[0]?.from ?? '')).toContain('/.desktop-build/targets/mac-arm64/runtime')
     const [dshFiles, dshNodeModules] = config.files.slice(-2)

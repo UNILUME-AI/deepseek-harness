@@ -65,6 +65,7 @@ import { DesktopBackgroundNotice } from './background-notice.ts'
 import { CredentialVault } from './credential-vault.ts'
 import { registerCredentialHandlers } from './credential-ipc.ts'
 import { createCredentialRequestHandler } from './credential-host.ts'
+import { SidebarBrowserRelay, listenSidebarBrowserRelay, type SidebarBrowserRelayListener } from './sidebar-browser-relay.ts'
 
 let focusPrimaryWindow = (): void => {}
 let stopForRecovery = async (): Promise<void> => {}
@@ -110,6 +111,13 @@ const recovery = new DesktopFatalRecovery({
   writeReport: (error, source) => persistCrashReport(error, source),
 })
 
+let sidebarBrowserListener: Promise<SidebarBrowserRelayListener | undefined> = Promise.resolve(undefined)
+let sidebarBrowserClosing: Promise<void> | undefined
+let sidebarBrowserClosed = process.platform === 'win32'
+const closeSidebarBrowser = (): Promise<void> => sidebarBrowserClosing ??= sidebarBrowserListener
+  .then(listener => listener?.close())
+  .finally(() => { sidebarBrowserClosed = true })
+
 function persistCrashReport(error: unknown, source: CrashReportSource): Promise<string | undefined> {
   return writeCrashReport(app.getPath('logs'), {
     source,
@@ -132,7 +140,11 @@ function reportFatal(error: unknown, source: CrashReportSource): void {
     void persistCrashReport(error, source)
     return
   }
-  void recovery.report(error, source).catch((failure: unknown) => { console.error(failure); app.exit(1) })
+  void recovery.report(error, source).catch(async (failure: unknown) => {
+    console.error(failure)
+    await closeSidebarBrowser().catch((closeError: unknown) => { console.error(closeError) })
+    app.exit(1)
+  })
 }
 
 protocol.registerSchemesAsPrivileged([{
@@ -341,7 +353,18 @@ async function main(): Promise<void> {
     return result.environment
   })
   let hostEnvironment: NodeJS.ProcessEnv = process.env
-  const prepareHostEnvironment = async (): Promise<void> => { hostEnvironment = await loginShell }
+  const prepareHostEnvironment = async (): Promise<void> => {
+    const [environment, listener] = await Promise.all([loginShell, sidebarBrowserListener])
+    // Sidebar profiles read the shell-owned executable, socket, and authentication token.
+    hostEnvironment = listener === undefined ? environment : {
+      ...environment,
+      DSH_SIDEBAR_BROWSER_SOCKET: listener.socketPath,
+      DSH_SIDEBAR_BROWSER_TOKEN: listener.socketToken,
+      DSH_SIDEBAR_BROWSER_EXECUTABLE: development
+        ? join(app.getAppPath(), 'resources', 'sidebar-browser-connect')
+        : join(process.resourcesPath, 'sidebar-browser-connect'),
+    }
+  }
   let quitting = false
   let startup: Promise<void> | undefined
   let workspaceRecovery: Promise<void> | undefined
@@ -408,6 +431,18 @@ async function main(): Promise<void> {
   const browserGuests = new DesktopBrowserGuests(() => hostUrl, join(app.getPath('sessionData'), 'Partitions'))
   // The renderer answers pre-fill visibility queries from its own activation mirror.
   const rendererVisibility = new RendererVisibility(ipcMain)
+  // Playwright MCP's extension relay reaches the visible Sidebar tab through this Unix socket;
+  // the stand-in executable is a POSIX shell script, so Windows has no Sidebar browser tools.
+  if (process.platform !== 'win32') {
+    sidebarBrowserListener = listenSidebarBrowserRelay(new SidebarBrowserRelay({
+      primary: () => mainWindow,
+      guests: browserGuests,
+      confirmVisible: (owner, lease) => rendererVisibility.confirm(owner, lease),
+    })).catch((error: unknown) => {
+      console.error('desktop sidebar browser: relay socket failed', error)
+      return undefined
+    })
+  }
   const vault = new CredentialVault(app.getPath('userData'))
   let injections: readonly unknown[] = []
   let welcomeBackend: DesktopWelcomeBackend | undefined
@@ -1277,13 +1312,22 @@ async function main(): Promise<void> {
     updateSchedule.dispose()
     updateDialog.dispose()
     mandatoryUI?.dispose()
-    void Promise.all([Promise.resolve(mandatoryPolicy?.dispose()).then(() => policyAuth?.dispose()), backend.close(),
+    void Promise.allSettled([Promise.resolve(mandatoryPolicy?.dispose()).then(() => policyAuth?.dispose()), backend.close(),
+      closeSidebarBrowser(),
       // A Platform cleanup failure is logged without cutting the remaining Host shutdown short.
       platformView.dispose().catch((error: unknown) => { console.error(error) })])
-      .catch((error: unknown) => { console.error(error) }).finally(() => { app.quit() })
+      .then((results) => {
+        for (const result of results) if (result.status === 'rejected') console.error(result.reason)
+        app.quit()
+      })
   }
   app.on('before-quit', (event) => {
     if (shellInstallerOwnsQuit) {
+      if (!sidebarBrowserClosed) {
+        event.preventDefault()
+        void closeSidebarBrowser().catch((error: unknown) => { console.error(error) }).finally(() => { app.quit() })
+        return
+      }
       shuttingDown = true
       quitConfirmation.dispose()
       backgroundNotice?.dispose()
@@ -1295,7 +1339,10 @@ async function main(): Promise<void> {
       void platformView.dispose().catch((error: unknown) => { console.error(error) })
       return
     }
-    if (quitting) return
+    if (quitting) {
+      if (!sidebarBrowserClosed) event.preventDefault()
+      return
+    }
     event.preventDefault()
     if (skipQuitConfirmation || sessionEnding) { finishQuit(); return }
     void quitConfirmation.confirm().then((approved) => {
@@ -1369,7 +1416,8 @@ if (ownsDesktopInstance) void app.whenReady().then(main).catch(async (error: unk
     await writeFile(diagnosticFile, `${error instanceof Error ? error.stack ?? message : message}\n`).catch(() => undefined)
   }
   reportFatal(error, 'main')
-}).catch((error: unknown) => {
+}).catch(async (error: unknown) => {
   console.error(error)
+  await closeSidebarBrowser().catch((closeError: unknown) => { console.error(closeError) })
   app.exit(1)
 })

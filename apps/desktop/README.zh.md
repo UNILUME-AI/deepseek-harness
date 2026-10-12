@@ -140,6 +140,11 @@ macOS 上自定义菜单保留 Electron 的标准 Window 菜单及应用隐藏�
 
 macOS 和 Linux 从图形界面启动的程序只继承会话管理器提供的环境，不包含 shell 启动文件导出的变量。第一个 Host 启动之前，Desktop 以 `<shell> -ilc` 运行一次账户的登录 shell（取自用户数据库，不看 `$SHELL`），读取定界符之间的 `env -0` 输出，使 `~/.zprofile` 和 `~/.zshrc`（或该 shell 的对应文件）对 Host、agent shell、终端和 profile 配置生效。读取与 profile 准备并行进行。读取进程没有终端输入，并设置 `DISABLE_AUTO_UPDATE=true`、`ZSH_TMUX_AUTOSTARTED=true` 和 `ZSH_TMUX_AUTOSTART=false`，避免 oh-my-zsh 和 tmux 插件阻塞。shell 的值覆盖继承的值，但 `PWD`、`OLDPWD`、`SHLVL`、`_`、上述读取变量以及启动方自有的 `DSH_*` 和 `ELECTRON_*` 除外；Desktop 在读取之前已按 `DSH_HOME` 等变量解析路径，因此 Host 保持相同的值。读取在结束定界符出现时完成，因此启动文件启动的后台进程可以继续运行，其输出被丢弃。候选 shell 无法启动、以非零状态退出、没有输出定界内容或超过 `DSH_DESKTOP_LOGIN_SHELL_TIMEOUT_MS`（1000 到 2147483647 的整数毫秒，默认 `10000`；超时会结束其进程组）时，Desktop 记录一条警告，并依次尝试 `/bin/zsh`、`/bin/bash` 和 `/bin/sh`；全部失败时 Host 使用继承的环境。读取命令使用 POSIX 语法，因此 csh、tcsh 或 nushell 等账户 shell 会失败，Host 改为获得第一个系统 shell 的启动文件所设置的环境。读取期间退出 Desktop 会结束正在运行的读取进程组。每个应用进程只读取一次，因此修改 shell 启动文件后需要退出并重新打开 Desktop。Windows 从图形界面启动的程序已经从注册表继承用户和系统环境变量，因此 Windows 跳过这一步。
 
+<a id="sidebar-browser-tools"></a>
+### 右栏浏览器工具
+
+在 macOS 和 Linux 上，主进程在一个只有当前用户可访问（0700）的临时目录里监听只有当前用户可读写（0600）的 Unix 套接字，并以 `DSH_SIDEBAR_BROWSER_SOCKET` 和 `DSH_SIDEBAR_BROWSER_EXECUTABLE` 把套接字路径和随附的占位可执行文件交给 Host，并以 `DSH_SIDEBAR_BROWSER_TOKEN` 传递每次启动重新生成的随机认证口令。以 `mode: sidebar` 挂载 [Playwright 提供方](../../packages/experimental/browser-use-playwright-mcp/README.zh.md) 的 profile 读取这些变量。Playwright MCP 用扩展连接页启动占位程序时，占位程序把口令和中继地址写入套接字；主进程在连接前以常量时间比较口令；地址路径是中继唯一的凭据，从不写进日志。随后主进程扮演 Playwright Extension：取当前激活的 guest 与 lease，向渲染进程确认该标签可见，不开调试端口地接管 `webContents.debugger`，并在根会话上把 guest 的 `webview` 目标类型报告为 `page`。转发每条命令前，主进程同步核对所跟踪的 lease 仍是该窗口的激活 lease，因此切换标签、收起右栏或站点有待处理的清除都会停止中继；导航类命令还会重新确认可见性。核对失败时，主进程以错误回复该命令、断开调试器并关闭中继。本版本只读：只转发读页面、截图、导航以及后退前进所需的命令，拒绝全部 `Input.*` 命令，也拒绝新开或关闭标签，模型只看到当前这一个标签。提供方还隐藏并拒绝脚本和输入工具，标签工具仅允许列标签。较新的连接会替换较旧的连接。guest 销毁时，中继关闭且不访问已销毁的 Electron 对象。普通退出和安装退出之前，外壳等待幂等的关闭 Promise：销毁已接受的套接字连接，等服务关闭，再删除套接字目录。Windows 没有右栏浏览器工具。
+
 ## 开发
 
 开发环境应用菜单提供“刷新页面”（macOS 为 Cmd+R，其他平台为 Ctrl+R）和“重启应用与 Host”。重启会等待 Host 关闭，再重新启动 Electron 和新的 Host；这两项操作都不会重新构建源码。

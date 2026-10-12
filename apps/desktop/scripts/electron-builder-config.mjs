@@ -146,6 +146,8 @@ export function createElectronBuilderConfig(
       { from: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)), to: 'icon.png' },
       // Windows tray bitmaps; macOS keeps the Dock and ships no menu bar icon.
       ...(packagesWindows ? [{ from: fileURLToPath(new URL('../resources/tray-windows.ico', import.meta.url)), to: 'tray.ico' }] : []),
+      // Stand-in browser executable for the Sidebar browser tools; POSIX shell only.
+      ...(packagesWindows ? [] : ['sidebar-browser-connect', 'sidebar-browser-connect.mjs'].map(name => ({ from: fileURLToPath(new URL(`../resources/${name}`, import.meta.url)), to: name }))),
     ],
     mac: {
       icon: fileURLToPath(new URL('../resources/icon-macos.png', import.meta.url)),

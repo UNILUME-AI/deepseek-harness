@@ -4,25 +4,27 @@ import BrowserUseRegistry from '../src/index.ts'
 import { BrowserUseProviderName } from '../src/brand.ts'
 
 const MCP = BrowserUseProviderName('playwright-mcp')
-const NATIVE = BrowserUseProviderName('stagehand')
+const SIDEBAR = BrowserUseProviderName('sidebar-browser')
 
 describe('browser-use provider registration', () => {
-  it('rejects a second provider and permits registration after disposal', async () => {
+  it('admits providers with distinct names and rejects a repeated name', async () => {
     const ctx = new Context()
     try {
       await ctx.plugin(BrowserUseRegistry)
-      expect(ctx.browserUse.providerName).toBeUndefined()
+      expect(ctx.browserUse.providerNames).toEqual([])
       const dispose = ctx.browserUse.register(MCP)
-      expect(ctx.browserUse.providerName).toBe(MCP)
-      expect(() => ctx.browserUse.register(MCP)).toThrow('already registered')
-      expect(() => ctx.browserUse.register(NATIVE)).toThrow('playwright-mcp')
+      const disposeSidebar = ctx.browserUse.register(SIDEBAR)
+      expect(ctx.browserUse.providerNames).toEqual([MCP, SIDEBAR])
+      expect(() => ctx.browserUse.register(MCP)).toThrow('browser use provider "playwright-mcp" is already registered')
+      expect(() => ctx.browserUse.register(SIDEBAR)).toThrow('"sidebar-browser" is already registered')
       await dispose()
-      expect(ctx.browserUse.providerName).toBeUndefined()
-      const disposeNative = ctx.browserUse.register(NATIVE)
+      expect(ctx.browserUse.providerNames).toEqual([SIDEBAR])
+      const disposeAgain = ctx.browserUse.register(MCP)
       await dispose()
-      expect(ctx.browserUse.providerName).toBe(NATIVE)
-      await disposeNative()
-      expect(ctx.browserUse.providerName).toBeUndefined()
+      expect(ctx.browserUse.providerNames).toEqual([SIDEBAR, MCP])
+      await disposeSidebar()
+      await disposeAgain()
+      expect(ctx.browserUse.providerNames).toEqual([])
     } finally {
       await ctx.fiber.dispose()
     }
@@ -38,11 +40,11 @@ describe('browser-use provider registration', () => {
         apply(ctx: Context) { ctx.browserUse.register(MCP) },
       })
       await provider
-      expect(ctx.browserUse.providerName).toBe(MCP)
+      expect(ctx.browserUse.providerNames).toEqual([MCP])
       await provider.dispose()
-      expect(ctx.browserUse.providerName).toBeUndefined()
-      ctx.browserUse.register(NATIVE)
-      expect(ctx.browserUse.providerName).toBe(NATIVE)
+      expect(ctx.browserUse.providerNames).toEqual([])
+      ctx.browserUse.register(MCP)
+      expect(ctx.browserUse.providerNames).toEqual([MCP])
     } finally {
       await ctx.fiber.dispose()
     }

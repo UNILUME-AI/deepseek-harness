@@ -891,11 +891,13 @@ export type Config = BrowserMcpConfig
 
 - `inject`: `browserUse` · `agents` · `tools` · `systemPrompt`
 - `refs`: `BrowserMcpConfig` (`@deepseek-ai/dsh-experimental-browser-use-runtime/mcp`) · [`CredentialRef`](subsystems/credentials.zh.md)
-- `source`: [`packages/experimental/browser-use-playwright-mcp/src/index.ts:35`](../packages/experimental/browser-use-playwright-mcp/src/index.ts)
+- `source`: [`packages/experimental/browser-use-playwright-mcp/src/index.ts:67`](../packages/experimental/browser-use-playwright-mcp/src/index.ts)
 
 ```ts config-catalog
-/** Playwright browser selection, optional coordinate-tool capability, and the model's pointer coordinate space. */
-export type Config = (BrowserMcpConfig | ExtensionConfig) & {
+/** Playwright browser selection, provider name, optional coordinate-tool capability, and the model's pointer coordinate space. */
+export type Config = (BrowserMcpConfig | ExtensionConfig | SidebarConfig) & {
+  /** Browser-use registration name and MCP tool namespace; distinct names let several providers coexist. Defaults to `playwright-mcp`. */
+  name?: string
   /** Extra upstream tool groups; `vision` adds coordinate-based mouse tools. Defaults to none. */
   capabilities?: 'vision'[]
   /**
@@ -914,6 +916,26 @@ export interface ExtensionConfig {
   browser: 'chrome' | 'msedge'
   /** Credential reference resolved for each Session startup; omission requires manual approval. */
   extensionTokenEnv?: CredentialRef
+  /** Per-call timeout override in milliseconds; omission uses the MCP client default. */
+  toolCallTimeoutMs?: number
+}
+
+/**
+ * Connection to the desktop shell's Sidebar browser tab through a shell-owned stand-in for the
+ * extension browser executable. The upstream server launches `executablePath` with the extension
+ * connection page URL; the stand-in hands that URL to the shell over `socketPath`.
+ */
+export interface SidebarConfig {
+  /** Exclusively connect one live Session to the tab the desktop shell exposes. */
+  mode: 'sidebar'
+  /** Stand-in executable shipped with the desktop shell. */
+  executablePath: string
+  /** Shell-owned Unix socket that receives the connection page URL. */
+  socketPath: string
+  /** Per-launch shell authentication token, passed only through the child environment. */
+  socketToken: string
+  /** Milliseconds the stand-in waits for the shell to accept a connection before failing the browser call. */
+  connectTimeoutMs: number
   /** Per-call timeout override in milliseconds; omission uses the MCP client default. */
   toolCallTimeoutMs?: number
 }
@@ -2141,10 +2163,10 @@ export interface ReconnectConfig {
  * model-facing description and input schema and wrap the forwarded call — for
  * example to convert a model's normalized pointer coordinates to the upstream
  * pixel convention before calling. It must preserve `name` and `rawName`
- * identity and return the complete replacement options. Omission registers
- * the upstream tool verbatim.
+ * identity and return the complete replacement options, or return undefined
+ * to omit the tool from registration. Without a configured decorator, the upstream tool registers verbatim.
  */
-export type McpToolDecorator = (tool: McpToolDefinitionOptions, callSibling: McpSiblingCall) => McpToolDefinitionOptions
+export type McpToolDecorator = (tool: McpToolDefinitionOptions, callSibling: McpSiblingCall) => McpToolDefinitionOptions | undefined
 
 /** One upstream MCP tool and the callback that obtains its raw protocol result. */
 export interface McpToolDefinitionOptions {
@@ -4497,6 +4519,7 @@ export interface Config {
 | `@deepseek-ai/dsh-config-editor` | `loader` · `profileContext` | [`packages/boot/config-editor/src/index.ts`](../packages/boot/config-editor/src/index.ts) |
 | `@deepseek-ai/dsh-cordis-client-runner` | — | [`packages/extensions/cordis-client-runner/src/index.ts`](../packages/extensions/cordis-client-runner/src/index.ts) |
 | `@deepseek-ai/dsh-deepseek-llm-api-extensions` | — | [`packages/llm/deepseek-llm-api-extensions/src/index.ts`](../packages/llm/deepseek-llm-api-extensions/src/index.ts) |
+| `@deepseek-ai/dsh-desktop-credential-tools` | `tools` | [`packages/desktop/credential-tools/src/index.ts`](../packages/desktop/credential-tools/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-auto-review` | `approval` · `llm` · `permissionPresets` · `sessions` · `tools` | [`packages/experimental/auto-review/src/index.ts`](../packages/experimental/auto-review/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-client-ui-agent-team` | — | [`packages/experimental/client-ui-agent-team/src/index.ts`](../packages/experimental/client-ui-agent-team/src/index.ts) |
 | `@deepseek-ai/dsh-experimental-client-ui-voice-input` | — | [`packages/experimental/client-ui-voice-input/src/index.ts`](../packages/experimental/client-ui-voice-input/src/index.ts) |

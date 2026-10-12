@@ -3,26 +3,26 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/browser-use/browser-use/README.md
 /:
-  en: f40b34f771caa863
-  zh: f61d7ce73e0720e2
+  en: 5532d9aa0c1bb728
+  zh: df0b1562a95d8b52
 /deepseek-ai-dsh-browser-use:
   en: 2dbab261a3c343cc
   zh: f2cf8d237182cef1
 /deepseek-ai-dsh-browser-use/summary:
-  en: 3e2c0d4aad911b93
-  zh: 3e3903754a46de8e
+  en: 8a40e12e4771cae7
+  zh: 5c96bb9db21342cf
 /deepseek-ai-dsh-browser-use/table-of-contents:
   en: d152484eb41ac6b4
   zh: f14f34fce35a8d90
 /deepseek-ai-dsh-browser-use/use-this-package:
-  en: d0c5ace058c0572a
-  zh: 2bbfa786c1f9ba53
+  en: f9a399a5e043a794
+  zh: 4e7f5bddeba38f24
 /deepseek-ai-dsh-browser-use/understand-the-implementation:
-  en: e8421af75ba37792
-  zh: 3dbc5e6ff5291972
+  en: 1e7b4bfcda450fe3
+  zh: 8491fc851f089650
 /deepseek-ai-dsh-browser-use/further-exploration:
-  en: 5ae59b1b38304607
-  zh: 429171c1a3fb914c
+  en: 88a9cf8416db909e
+  zh: dab5178036f82dfb
 /deepseek-ai-dsh-browser-use/model-experience:
   en: 8780c250dfaefaaa
   zh: f1fd94f7531b60a1
@@ -30,8 +30,8 @@
   en: 0cc866a67a19d08b
   zh: c6a46b147b042cff
 /deepseek-ai-dsh-browser-use/known-limitations-and-deferred-work:
-  en: 43952e97817e9e32
-  zh: a5e494860a71fc71
+  en: 6a821756d398491a
+  zh: 9dee7383c1063600
 /deepseek-ai-dsh-browser-use/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 8ec3e73528ddb1a6

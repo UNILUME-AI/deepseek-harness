@@ -163,7 +163,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     mode: 'seam',
     implementations: ['experimental-browser-use-playwright-mcp', 'experimental-browser-use-chrome-devtools-mcp', 'experimental-browser-use-stagehand-native'],
     consumers: ['experimental-browser-use-playwright-mcp', 'experimental-browser-use-chrome-devtools-mcp', 'experimental-browser-use-stagehand-native'],
-    note: 'One provider-owned name per service instance. Providers own their tools and browser resources per live Session; the shared service has no browser operation API.',
+    note: 'Providers with distinct names coexist; a repeated name is rejected. Providers own their tools and browser resources per live Session; the shared service has no browser operation API.',
   },
   {
     key: 'computerUse',

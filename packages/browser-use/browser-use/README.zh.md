@@ -1,5 +1,5 @@
 ---
-description: "浏览器操作 提供方 注册服务，供一次启用一个浏览器后端的部署使用。"
+description: "浏览器操作 提供方 注册服务，供启用一个或多个具名浏览器后端的部署使用。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-部署可以一次启用一个浏览器操作 提供方。加载另一个 提供方 时会报错并指出已注册的 提供方 名称。各 提供方 提供自己的工具并拥有浏览器会话。本包不添加模型可见工具或浏览器操作。
+名称不同时，部署可以同时启用多个浏览器操作 提供方，例如一个面向 Chrome 的 Playwright 提供方 和另一个面向桌面版右栏的 提供方。加载名称已注册的 提供方 时会报错并指出该名称，因为名称同时是该 提供方 的工具命名空间。各 提供方 提供自己的工具并拥有浏览器会话。本包不添加模型可见工具或浏览器操作。
 
 ## 目录
 
@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-在 Cordis 组合中，将服务与所选 提供方 一起挂载一次：
+在 Cordis 组合中，将服务与所选的各 提供方 一起挂载一次：
 
 ```yaml
 - name: '@deepseek-ai/dsh-browser-use'
@@ -33,7 +33,7 @@ kind: "package-reference"
 
 服务没有配置。提供方 插件注入 `browserUse` 并调用 `ctx.browserUse.register(BrowserUseProviderName(name))`；品牌类型从 `@deepseek-ai/dsh-browser-use/brand` 导出。返回的 effect 清理器释放该注册。
 
-提供方 在释放注册前停止接收工具调用、关闭资源并等待自己拥有的工作结束。`ctx.browserUse.providerName` 在释放之前持续报告已注册名称。
+提供方 在释放注册前停止接收工具调用、关闭资源并等待自己拥有的工作结束。`ctx.browserUse.providerNames` 按注册顺序列出已注册名称，各名称在释放前一直在列。
 
 -----
 
@@ -43,9 +43,9 @@ kind: "package-reference"
 <details>
 <summary>实现内部机制 — 点击展开</summary>
 
-一个私有名称拥有该注册位。Cordis effect 在插件卸载时移除贡献；重复调用清理器不能移除后续注册。[源码](src/index.ts) 不包含浏览器对象、操作接口、资源生命周期或 提供方 选择器。
+一个私有集合保存已注册名称。Cordis effect 在插件卸载时移除贡献；重复调用清理器不能移除后续注册。[源码](src/index.ts) 不包含浏览器对象、操作接口、资源生命周期或 提供方 选择器。
 
-不发布运行时不变量伴随入口：注册表只有一个权威字段，不暴露可能与之偏离的独立维护观测值。所属测试覆盖重复注册拒绝与插件清理。
+不发布运行时不变量伴随入口：注册表只有一个权威集合，不暴露可能与之偏离的独立维护观测值。所属测试覆盖重复注册拒绝与插件清理。
 
 </details>
 
@@ -55,7 +55,7 @@ kind: "package-reference"
 ## 延伸阅读
 
 - [浏览器操作](../../../docs/subsystems/browser-use.zh.md) — 提供方 选择与 Session 所有权。
-- [Playwright MCP 提供方](../../experimental/browser-use-playwright-mcp/README.zh.md) — Playwright 浏览器工具。
+- [Playwright MCP 提供方](../../experimental/browser-use-playwright-mcp/README.zh.md) — Playwright 浏览器工具，包括桌面版右栏连接。
 - [Chrome DevTools MCP 提供方](../../experimental/browser-use-chrome-devtools-mcp/README.zh.md) — Chromium 检查与控制。
 - [Stagehand 提供方](../../experimental/browser-use-stagehand-native/README.zh.md) — 支持 AI（人工智能）辅助的原生浏览器操作。
 
@@ -74,7 +74,7 @@ kind: "package-reference"
 
 <a id="known-limitations-and-deferred-work"></a>
 
-服务在其 Cordis 服务实例内限制注册。
+服务在其 Cordis 服务实例内拒绝重复名称。
 
 - **浏览器所有权** — 提供方 拥有浏览器资源并实施 Session 隔离；此服务不保存浏览器状态。
 - **提供方 选择** — 配置选择 提供方；模型不能在运行时切换已注册后端。

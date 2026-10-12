@@ -59,10 +59,10 @@ export type McpSiblingCall = (rawName: string, args: Record<string, unknown>, ex
  * model-facing description and input schema and wrap the forwarded call — for
  * example to convert a model's normalized pointer coordinates to the upstream
  * pixel convention before calling. It must preserve `name` and `rawName`
- * identity and return the complete replacement options. Omission registers
- * the upstream tool verbatim.
+ * identity and return the complete replacement options, or return undefined
+ * to omit the tool from registration. Without a configured decorator, the upstream tool registers verbatim.
  */
-export type McpToolDecorator = (tool: McpToolDefinitionOptions, callSibling: McpSiblingCall) => McpToolDefinitionOptions
+export type McpToolDecorator = (tool: McpToolDefinitionOptions, callSibling: McpSiblingCall) => McpToolDefinitionOptions | undefined
 
 /** Canonical MCP result exposed to PTC mode without discarding protocol blocks. */
 export type McpResult<Structured extends JsonValue = JsonValue> = {
@@ -154,16 +154,18 @@ export async function syncTools(
 ): Promise<ToolDisposers> {
   // Phase 1: fetch and build the next generation without touching the registry.
   const definitions = new Map<string, ToolDefinition>()
+  const seen = new Set<string>()
   const response = client.getServerCapabilities()?.tools === undefined
     ? { tools: [] }
     : await client.listTools(undefined, { cacheMode: 'refresh' })
   for (const tool of response.tools) {
     const publicName = publicToolName(opts.serverName, tool.name)
-    if (definitions.has(publicName)) {
+    if (seen.has(publicName)) {
       throw new Error(
         `mcp-client(${opts.serverName}): server listed tool "${tool.name}" more than once — invalid tool list`,
       )
     }
+    seen.add(publicName)
     const options: McpToolDefinitionOptions = {
       name: publicName,
       rawName: tool.name,
@@ -178,12 +180,13 @@ export async function syncTools(
       maxPresentationMetaBytes: opts.maxPresentationMetaBytes,
     }
     const decorate = opts.decorateTool
-    definitions.set(publicName, createMcpToolDefinition(ctx, decorate === undefined
+    const decorated = decorate === undefined
       ? options
       : decorate(options, (rawName, args, execution) => client.callTool(
         { name: rawName, arguments: args },
         { signal: execution.signal, timeout: opts.toolCallTimeoutMs },
-      ))))
+      ))
+    if (decorated !== undefined) definitions.set(publicName, createMcpToolDefinition(ctx, decorated))
   }
 
   // Phase 2: swap generations.

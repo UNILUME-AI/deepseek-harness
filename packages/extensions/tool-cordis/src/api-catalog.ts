@@ -544,12 +544,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'browserUse',
-    summary: 'Owns one optional provider registration in the shared browser-use service.',
-    description: 'Owns one optional provider registration in the shared browser-use service.',
+    summary: 'Owns the provider registrations in the shared browser-use service.',
+    description: 'Owns the provider registrations in the shared browser-use service.',
     methods: [
       {
         signature: 'register(name: BrowserUseProviderName): () => Promise<void>',
-        description: 'Reserve the sole provider slot until the contribution is disposed. A second registration fails even when it repeats the current name. Providers must stop their tools and await owned work before releasing this registration.',
+        description: 'Reserve one provider name until the contribution is disposed. Providers with distinct names coexist; repeating a registered name fails because the name is also the provider\'s tool namespace. Providers must stop their tools and await owned work before releasing this registration.',
         parameters: [{ name: 'name', description: 'provider-owned name used in registration diagnostics.' }],
         returns: 'the effect disposer for this exact registration.',
       },

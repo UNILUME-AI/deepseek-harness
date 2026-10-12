@@ -267,6 +267,11 @@ const harness = await vi.hoisted(async () => {
 
 const testAuth = vi.hoisted(() => ({ login: vi.fn<() => Promise<'returned' | 'cancelled' | 'failed'>>(),
   focus: vi.fn(), dispose: vi.fn(async () => {}) }))
+const sidebar = vi.hoisted(() => ({ close: vi.fn(async () => {}) }))
+vi.mock('../src/sidebar-browser-relay.ts', () => ({
+  SidebarBrowserRelay: vi.fn(),
+  listenSidebarBrowserRelay: async () => ({ socketPath: 'fixture-sidebar.sock', socketToken: '0'.repeat(64), close: sidebar.close }),
+}))
 vi.mock('../src/policy-test-auth.ts', () => ({ DesktopPolicyTestAuth: class {
   readonly login = testAuth.login
   readonly focus = testAuth.focus
@@ -395,6 +400,7 @@ beforeEach(() => {
   harness.dialog.showMessageBox.mockReset()
   harness.dialog.showMessageBox.mockResolvedValue({ response: 1 })
   testAuth.login.mockReset()
+  sidebar.close.mockReset().mockResolvedValue(undefined)
   testAuth.login.mockResolvedValue('cancelled')
   vi.useFakeTimers()
   harness.reset()
@@ -1317,6 +1323,43 @@ describe('desktop main startup', () => {
     window.emit('show')
     await opened
     expect(harness.updateInstall).toHaveBeenCalledWith('1.0.1')
+  })
+
+  it('passes Sidebar authentication to the Host and waits for the relay before quitting', async () => {
+    vi.stubGlobal('process', { ...process, platform: 'darwin' })
+    const host = await readyForUpdate()
+    expect(host.environment?.DSH_SIDEBAR_BROWSER_SOCKET).toBe('fixture-sidebar.sock')
+    expect(host.environment?.DSH_SIDEBAR_BROWSER_TOKEN).toBe('0'.repeat(64))
+    let finish!: () => void
+    sidebar.close.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve }))
+    harness.app.quit()
+    await host.stopping.promise
+    host.exited.resolve()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sidebar.close).toHaveBeenCalledOnce()
+    expect(harness.app.quit).toHaveBeenCalledOnce()
+    finish()
+    await harness.quitCompleted.promise
+    expect(harness.app.quit).toHaveBeenCalledTimes(2)
+  })
+
+  it('waits for the Sidebar relay before the installer quits Electron', async () => {
+    vi.stubGlobal('process', { ...process, platform: 'darwin' })
+    const host = await readyForUpdate()
+    harness.dialog.showMessageBox.mockResolvedValueOnce({ response: 0 })
+    const preparing = harness.prepareUpdate()
+    await host.stopping.promise
+    host.exited.resolve()
+    await expect(preparing).resolves.toBe(true)
+    let finish!: () => void
+    sidebar.close.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve }))
+    harness.app.quit()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sidebar.close).toHaveBeenCalledOnce()
+    expect(harness.app.quit).toHaveBeenCalledOnce()
+    finish()
+    await harness.quitCompleted.promise
+    expect(harness.app.quit).toHaveBeenCalledTimes(2)
   })
 
   it('waits for Platform view storage cleanup before an ordinary quit completes', async () => {

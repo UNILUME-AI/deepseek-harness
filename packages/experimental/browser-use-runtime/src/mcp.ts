@@ -89,8 +89,8 @@ export interface SessionMcpOptions {
   /**
    * Optional registration-time adaptation for every upstream tool this Session
    * discovers, letting a provider rewrite model-facing definitions and
-   * forwarded arguments (for example pointer coordinate spaces). Omission
-   * registers upstream tools verbatim.
+   * forwarded arguments (for example pointer coordinate spaces), or omit tools
+   * by returning undefined. Without a configured decorator, upstream tools register verbatim.
    */
   decorateTool?: McpToolDecorator
 }

@@ -11,7 +11,7 @@
  * @module
  */
 
-import type { McpSiblingCall, McpToolDecorator } from '@deepseek-ai/dsh-experimental-browser-use-runtime/mcp'
+import type { McpSiblingCall, McpToolDefinitionOptions } from '@deepseek-ai/dsh-experimental-browser-use-runtime/mcp'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 
 /**
@@ -177,7 +177,9 @@ async function readViewportSize(callSibling: McpSiblingCall, execution: ToolExec
  * @param space - the coordinate space the configured model emits.
  * @returns the decorator for the shared runtime's per-tool adaptation seam.
  */
-export function createPointerCoordinatesDecorator(space: PointerCoordinateSpace): McpToolDecorator {
+export function createPointerCoordinatesDecorator(
+  space: PointerCoordinateSpace,
+): (tool: McpToolDefinitionOptions, callSibling: McpSiblingCall) => McpToolDefinitionOptions {
   if (space === 'pixel') return tool => tool
   return (tool, callSibling) => {
     const shape = POINTER_TOOLS.find(entry => entry.tool === tool.rawName)

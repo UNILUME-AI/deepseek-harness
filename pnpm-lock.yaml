@@ -621,6 +621,9 @@ importers:
       '@deepseek-ai/dsh-desktop-credential-tools':
         specifier: workspace:*
         version: link:../../packages/desktop/credential-tools
+      '@deepseek-ai/dsh-experimental-browser-use-playwright-mcp':
+        specifier: workspace:*
+        version: link:../../packages/experimental/browser-use-playwright-mcp
       '@deepseek-ai/dsh-home-paths':
         specifier: workspace:*
         version: link:../../packages/util/home-paths

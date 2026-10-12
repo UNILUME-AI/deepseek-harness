@@ -167,10 +167,10 @@ it('waits for SystemPrompt and ToolRuntime before reserving the provider', async
   })
   await Promise.all([tools, browser])
   expect(ctx.get('tools')).toBeUndefined()
-  expect(ctx.browserUse.providerName).toBeUndefined()
+  expect(ctx.browserUse.providerNames).toEqual([])
   await ctx.plugin(SystemPrompt)
   await Promise.all([tools, browser])
-  expect(ctx.browserUse.providerName).toBe('browser-fixture')
+  expect(ctx.browserUse.providerNames).toEqual(['browser-fixture'])
 })
 
 describe('Session MCP Loader composition', () => {
@@ -203,7 +203,7 @@ describe('Session MCP Loader composition', () => {
     await warm(ctx, resumed.agent)
     expect((await execute(ctx, resumed.agent)).content).toEqual([{ type: 'text', text: 'Visit 1: direct' }])
     await browser.dispose()
-    expect(ctx.browserUse.providerName).toBeUndefined()
+    expect(ctx.browserUse.providerNames).toEqual([])
     const closed = await events(root)
     for (const { pid } of closed.filter(event => event.event === 'start')) {
       expect(() => process.kill(pid, 0)).toThrow(expect.objectContaining({ code: 'ESRCH' }))
