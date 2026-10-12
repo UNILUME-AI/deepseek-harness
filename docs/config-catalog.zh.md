@@ -891,13 +891,19 @@ export type Config = BrowserMcpConfig
 
 - `inject`: `browserUse` · `agents` · `tools` · `systemPrompt`
 - `refs`: `BrowserMcpConfig` (`@deepseek-ai/dsh-experimental-browser-use-runtime/mcp`) · [`CredentialRef`](subsystems/credentials.zh.md)
-- `source`: [`packages/experimental/browser-use-playwright-mcp/src/index.ts:31`](../packages/experimental/browser-use-playwright-mcp/src/index.ts)
+- `source`: [`packages/experimental/browser-use-playwright-mcp/src/index.ts:35`](../packages/experimental/browser-use-playwright-mcp/src/index.ts)
 
 ```ts config-catalog
-/** Playwright browser selection and optional coordinate-tool capability. */
+/** Playwright browser selection, optional coordinate-tool capability, and the model's pointer coordinate space. */
 export type Config = (BrowserMcpConfig | ExtensionConfig) & {
   /** Extra upstream tool groups; `vision` adds coordinate-based mouse tools. Defaults to none. */
   capabilities?: 'vision'[]
+  /**
+   * Coordinate space the configured model emits for pointer tools. Non-pixel
+   * spaces rewrite the pointer tool definitions and convert model arguments to
+   * viewport CSS pixels before forwarding; they require `capabilities: [vision]`. Defaults to `pixel`.
+   */
+  pointerCoordinates?: PointerCoordinateSpace
 }
 
 /** Extension connection to an externally owned Chrome or Edge browser. */
@@ -911,6 +917,15 @@ export interface ExtensionConfig {
   /** Per-call timeout override in milliseconds; omission uses the MCP client default. */
   toolCallTimeoutMs?: number
 }
+
+/**
+ * Coordinate space the configured model uses for pointer tools.
+ * - `pixel`: upstream convention, viewport-relative CSS pixels; definitions
+ *   and arguments pass through verbatim.
+ * - `normalized-1000-xy`: values 0-1000 against the current viewport for the
+ *   named `x` and `y` arguments (Doubao Seed, Qwen3.x; Gemini not yet measured).
+ */
+export type PointerCoordinateSpace = 'pixel' | 'normalized-1000-xy'
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-browser-use-playwright-mcp -->
 
@@ -2031,7 +2046,8 @@ export interface LspLocalServerConfig {
 ## `@deepseek-ai/dsh-mcp-client`
 
 - `inject`: `tools`
-- `source`: [`packages/mcp/mcp-client/src/index.ts:108`](../packages/mcp/mcp-client/src/index.ts)
+- `refs`: [`ToolExecution`](subsystems/tools.zh.md)
+- `source`: [`packages/mcp/mcp-client/src/index.ts:123`](../packages/mcp/mcp-client/src/index.ts)
 
 ```ts config-catalog
 /** Configuration for one stdio or Streamable HTTP MCP server. */
@@ -2065,6 +2081,13 @@ export interface StdioConfig {
   maxPresentationMetaBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
+  /**
+   * Optional registration-time adaptation for every discovered tool, used by
+   * programmatic provider runtimes to rewrite model-facing definitions and
+   * forwarded arguments. Intended for programmatic callers only; a
+   * non-function value rejects plugin activation.
+   */
+  decorateTool?: McpToolDecorator
 }
 
 /** Config for connecting to an MCP server over Streamable HTTP (SSE). */
@@ -2091,6 +2114,13 @@ export interface StreamableHttpConfig {
   maxPresentationMetaBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
+  /**
+   * Optional registration-time adaptation for every discovered tool, used by
+   * programmatic provider runtimes to rewrite model-facing definitions and
+   * forwarded arguments. Intended for programmatic callers only; a
+   * non-function value rejects plugin activation.
+   */
+  decorateTool?: McpToolDecorator
 }
 
 /** Automatic reconnect policy for one MCP server connection. */
@@ -2104,6 +2134,58 @@ export interface ReconnectConfig {
   /** Consecutive failed attempts per outage before giving up for good (default 10). */
   maxAttempts?: number
 }
+
+/**
+ * Registration-time adaptation for one discovered upstream tool, applied by
+ * {@link syncTools} at every synchronization. The adapter may rewrite the
+ * model-facing description and input schema and wrap the forwarded call — for
+ * example to convert a model's normalized pointer coordinates to the upstream
+ * pixel convention before calling. It must preserve `name` and `rawName`
+ * identity and return the complete replacement options. Omission registers
+ * the upstream tool verbatim.
+ */
+export type McpToolDecorator = (tool: McpToolDefinitionOptions, callSibling: McpSiblingCall) => McpToolDefinitionOptions
+
+/** One upstream MCP tool and the callback that obtains its raw protocol result. */
+export interface McpToolDefinitionOptions {
+  /** ToolRuntime name presented to the model. */
+  name: string
+  /** Upstream name used in result diagnostics. */
+  rawName: string
+  /** Upstream model-facing description. */
+  description: string
+  /** Upstream JSON input schema. */
+  inputSchema: Record<string, unknown>
+  /** Advertised structured output schema, when present. */
+  outputSchema?: unknown
+  /** Whether the upstream tool requires the unsupported task execution extension. */
+  taskRequired?: boolean
+  /**
+   * Obtain one raw MCP result from the provider.
+   * @param args - model arguments admitted by the ToolRuntime.
+   * @param execution - exact ToolRuntime invocation, including its Agent and cancellation.
+   * @returns the external result object, validated before content projection.
+   */
+  call(args: Record<string, unknown>, execution: ToolExecution): Promise<unknown>
+  /**
+   * Maximum UTF-8 bytes of one serialized `dsh/presentation` payload projected
+   * as result metadata. Absent means the definition never projects one.
+   */
+  maxPresentationMetaBytes?: number
+}
+
+/**
+ * Invoke another tool on the same MCP connection while one tool executes.
+ * The sibling call bypasses ToolRuntime guards, approval, and the Session log,
+ * so decorators must restrict it to read-only helper calls. The sibling result
+ * is the unvalidated external MCP result; the caller owns interpretation and
+ * error handling.
+ * @param rawName - upstream tool name as listed by the server.
+ * @param args - arguments sent verbatim to the sibling tool.
+ * @param execution - the exact invocation requesting the sibling call.
+ * @returns the raw MCP result of the sibling call.
+ */
+export type McpSiblingCall = (rawName: string, args: Record<string, unknown>, execution: ToolExecution) => Promise<unknown>
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-mcp-client -->
 

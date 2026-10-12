@@ -8,12 +8,16 @@ import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import type { Context } from '@deepseek-ai/cordis'
 import { BrowserMcpConfig, mountSessionMcp, validateBrowserMcpConfig } from '@deepseek-ai/dsh-experimental-browser-use-runtime/mcp'
+import { createPointerCoordinatesDecorator, type PointerCoordinateSpace } from './pointer-coordinates.ts'
 
 /** Cordis identity for the Playwright MCP browser provider. */
 export const name = 'experimental-browser-use-playwright-mcp'
 
 /** Services required for scoped MCP startup and prompt readiness checks. */
 export const inject = ['browserUse', 'agents', 'tools', 'systemPrompt']
+
+/** Coordinate space the configured model uses for pointer tools. */
+export type { PointerCoordinateSpace }
 
 /** Extension connection to an externally owned Chrome or Edge browser. */
 export interface ExtensionConfig {
@@ -27,13 +31,19 @@ export interface ExtensionConfig {
   toolCallTimeoutMs?: number
 }
 
-/** Playwright browser selection and optional coordinate-tool capability. */
+/** Playwright browser selection, optional coordinate-tool capability, and the model's pointer coordinate space. */
 export type Config = (BrowserMcpConfig | ExtensionConfig) & {
   /** Extra upstream tool groups; `vision` adds coordinate-based mouse tools. Defaults to none. */
   capabilities?: 'vision'[]
+  /**
+   * Coordinate space the configured model emits for pointer tools. Non-pixel
+   * spaces rewrite the pointer tool definitions and convert model arguments to
+   * viewport CSS pixels before forwarding; they require `capabilities: [vision]`. Defaults to `pixel`.
+   */
+  pointerCoordinates?: PointerCoordinateSpace
 }
 
-/** Validate browser selection, credential references, and upstream capabilities before activation. */
+/** Validate browser selection, credential references, capabilities, and pointer space before activation. */
 export const Config = Schema.intersect([
   Schema.union([
     Schema.intersect([BrowserMcpConfig, Schema.object({ browser: Schema.never(), extensionTokenEnv: Schema.never() })]),
@@ -47,22 +57,31 @@ export const Config = Schema.intersect([
       executablePath: Schema.never(),
     }),
   ]),
-  Schema.object({ capabilities: Schema.array(Schema.const('vision')).default([]) }),
+  Schema.object({
+    capabilities: Schema.array(Schema.const('vision')).default([]),
+    pointerCoordinates: Schema.union([Schema.const('pixel'), Schema.const('normalized-1000-xy')]).default('pixel'),
+  }),
 ]) as Schema<
   (Parameters<typeof BrowserMcpConfig>[0] | (Omit<ExtensionConfig, 'browser' | 'extensionTokenEnv'> & {
     browser?: ExtensionConfig['browser']
     extensionTokenEnv?: string
-  })) & { capabilities?: 'vision'[] }, Config
+  })) & {
+    capabilities?: 'vision'[]
+    pointerCoordinates?: PointerCoordinateSpace
+  }, Config
 >
 
 /**
  * Expose Playwright's upstream tools in each live Session's scope.
  * The pinned npm server runs under the current Node executable; browser state is not persisted by DSH.
  * @param ctx - provider context supplying browser use, Agents, and tools.
- * @param config - validated browser choice and optional tool timeout.
+ * @param config - validated browser choice, optional tool timeout, and pointer coordinate space.
  */
 export function apply(ctx: Context, config: Config): void {
   if (config.mode !== 'extension') validateBrowserMcpConfig(config)
+  const pointerCoordinates = config.pointerCoordinates ?? 'pixel'
+  const vision = config.capabilities?.includes('vision') === true
+  if (pointerCoordinates !== 'pixel' && !vision) throw new Error(`playwright-mcp: pointerCoordinates ${pointerCoordinates} requires capabilities [vision]`)
   const cli = join(dirname(fileURLToPath(import.meta.resolve('@playwright/mcp/package.json'))), 'cli.js')
   // Upstream environment options can otherwise replace the configured browser
   // mode or import an unrelated profile. Empty values mean absent to its parser.
@@ -79,7 +98,7 @@ export function apply(ctx: Context, config: Config): void {
     if (config.headless) args.push('--headless')
     if (config.executablePath !== undefined) args.push('--executable-path', config.executablePath)
   }
-  if (config.capabilities?.includes('vision') === true) args.push('--caps', 'vision')
+  if (vision) args.push('--caps', 'vision')
   const tokenRef = config.mode === 'extension' ? config.extensionTokenEnv : undefined
   mountSessionMcp(ctx, {
     name: 'playwright-mcp',
@@ -102,6 +121,7 @@ export function apply(ctx: Context, config: Config): void {
         return { ...env, PLAYWRIGHT_MCP_EXTENSION_TOKEN: value }
       }
       : env,
+    decorateTool: createPointerCoordinatesDecorator(pointerCoordinates),
     ...config.toolCallTimeoutMs === undefined ? {} : { toolCallTimeoutMs: config.toolCallTimeoutMs },
   })
 }

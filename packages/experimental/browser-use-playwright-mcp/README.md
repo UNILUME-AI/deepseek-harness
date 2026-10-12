@@ -61,10 +61,22 @@ Use `mode: extension` to operate the user’s running Chrome with its existing l
 | `extensionTokenEnv` | manual approval | Extension credential reference; extension mode only |
 | `capabilities` | `[]` | Optional `vision` coordinate tools in any mode |
 | `toolCallTimeoutMs` | MCP client default | Per-call timeout in milliseconds |
+| `pointerCoordinates` | `pixel` | Coordinate space the configured model emits for pointer tools |
 
 The [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-experimental-browser-use-playwright-mcp) lists accepted fields. The profile or preset selects the browser mode. The child process clears inherited `PLAYWRIGHT_MCP_*` options and sets `PLAYWRIGHT_MCP_EXTENSION_TOKEN` only from the configured reference. The token never appears in the MCP server's arguments, but the pinned server adds it to the extension connection page URL that it passes to the browser executable. Extension mode rejects `endpoint`, `headless`, and `executablePath`.
 
 When configuring the system prompt's `toolOrder` for the whole process, leave browser tools under `<unlisted-tools>`. Explicitly listing browser tool names can make prompt assembly fail for Sessions without a browser connection.
+
+### Pointer coordinates
+
+The upstream server declares pointer positions in viewport-relative CSS pixels, the same space as its default `css`-scale screenshots. Vision models instead emit coordinates under per-vendor conventions, and a BYOM deployment knows its own model's convention, so the provider declares it through `pointerCoordinates`:
+
+| Value | Model convention |
+|---|---|
+| `pixel` | Absolute CSS pixels (GPT-5, GPT-6) |
+| `normalized-1000-xy` | 0-1000 normalized to the viewport (Doubao Seed, Qwen3.x; Gemini is assumed to fill named `x` and `y` the same way, not yet measured) |
+
+The mapping follows each vendor's published coordinate convention, as catalogued by the model adapters in midscene. The upstream arguments are named `x` and `y`, so there is no positional axis order to swap. A normalized space requires `capabilities: [vision]`, which is what exposes the coordinate tools; configuring one without it fails activation. In a normalized space the three pointer tools (`browser_mouse_move_xy`, `browser_mouse_click_xy`, `browser_mouse_drag_xy`) are rewritten so the model sees 0-1000 viewport coordinates; arguments outside 0-1000 or not finite fail as a tool error without reaching the browser. Each coordinate call first reads the live viewport through the upstream `browser_evaluate` tool (one extra MCP round trip per call) and converts with rounding, clamped to the viewport edges. The upstream result echoes the pixel values it used, so a text line restating the 0-1000 space and the viewport size is appended to it. `pixel` keeps tool definitions and arguments byte-identical to the upstream server. The conversion matches default viewport screenshots only: full-page and element screenshots do not cover the viewport, so coordinates read from them do not convert correctly.
 
 -----
 
@@ -98,7 +110,7 @@ Browser state survives turns while its live Session remains attached. Disposal w
 
 #### What the model sees
 
-Tools retain upstream descriptions and JSON schemas under `mcp__playwright-mcp__<tool>` names. Text and screenshots use the normal tool-result pipeline and Session log. Enabling `vision` adds coordinate-tool definitions to this catalog. Screenshots require an attachment store and an image-capable model route; other routes receive the MCP image diagnostic. The MCP client also exposes resource helpers and attributed server instructions. Browser instructions are shown only after this Session owns a connection; targeted resource requests enforce the same ownership.
+Tools retain upstream descriptions and JSON schemas under `mcp__playwright-mcp__<tool>` names. With a normalized `pointerCoordinates` space, the three pointer tools instead present normalized 0-1000 viewport coordinates (order declared) while forwarding CSS pixels upstream. Text and screenshots use the normal tool-result pipeline and Session log. Enabling `vision` adds coordinate-tool definitions to this catalog. Screenshots require an attachment store and an image-capable model route; other routes receive the MCP image diagnostic. The MCP client also exposes resource helpers and attributed server instructions. Browser instructions are shown only after this Session owns a connection; targeted resource requests enforce the same ownership.
 
 #### Token effect
 
@@ -122,6 +134,7 @@ The integration retains the pinned server's browser and tool restrictions.
 - Tool schemas follow the pinned experimental dependency and carry no DSH stability promise.
 - Extension mode connects on the first browser tool call, not at Session startup. A missing extension fails that call quickly; an unapproved connection holds it until `toolCallTimeoutMs` (the MCP client default when omitted), and later calls in the same Session wait on the same pending connection until the user approves or the Session ends. Raise `toolCallTimeoutMs` when approving manually. A token that does not match the extension's makes the connection page show `Invalid token provided.` without offering manual approval, so calls time out the same way.
 - The pinned server opens the connection page with the token in its URL, so the token is briefly visible in the browser launch command line and can remain in browser history.
+- Normalized pointer coordinates read the live viewport through the upstream `browser_evaluate` tool on every coordinate call; a server without that tool cannot serve normalized spaces.
 
 <a id="dev-note"></a>
 ### Dev Note

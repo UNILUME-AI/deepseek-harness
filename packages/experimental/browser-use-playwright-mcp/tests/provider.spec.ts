@@ -118,3 +118,39 @@ it.each([
   expect(() => Provider.Config(config as Parameters<typeof Provider.Config>[0])).toThrow()
   expect(mountSessionMcp).not.toHaveBeenCalled()
 })
+
+it('defaults pointerCoordinates to pixel and wires the tool decorator for every space', () => {
+  expect(Provider.Config({ mode: 'launch' })).toEqual({ mode: 'launch', headless: true, capabilities: [], pointerCoordinates: 'pixel' })
+  expect(Provider.Config({ mode: 'attach', endpoint: 'http://127.0.0.1:9222', pointerCoordinates: 'normalized-1000-xy' }))
+    .toMatchObject({ pointerCoordinates: 'normalized-1000-xy' })
+  expect(() => Provider.Config({ mode: 'launch', pointerCoordinates: 'diagonal' } as never)).toThrow()
+  expect(() => Provider.Config({ mode: 'launch', pointerCoordinates: 'normalized-1000-yx' } as never)).toThrow()
+
+  Provider.apply(new Context(), Provider.Config({ mode: 'launch' }))
+  const pixelDecorator = vi.mocked(mountSessionMcp).mock.calls[0]![1].decorateTool!
+  const untouched = {
+    name: 'mcp__playwright-mcp__browser_mouse_click_xy',
+    rawName: 'browser_mouse_click_xy',
+    description: 'Click mouse button at a given position',
+    inputSchema: { type: 'object', properties: {} },
+    call: async () => ({}),
+  }
+  expect(pixelDecorator(untouched, () => Promise.resolve({}))).toBe(untouched)
+
+  Provider.apply(new Context(), Provider.Config({ mode: 'launch', capabilities: ['vision'], pointerCoordinates: 'normalized-1000-xy' }))
+  const normalizedDecorator = vi.mocked(mountSessionMcp).mock.calls[1]![1].decorateTool!
+  expect(normalizedDecorator(untouched, () => Promise.resolve({}))).not.toBe(untouched)
+})
+
+it.each([
+  { mode: 'launch' as const },
+  { mode: 'attach' as const, endpoint: 'http://localhost:9222' },
+  { mode: 'extension' as const },
+])('rejects a normalized pointer space without the vision capability in $mode mode', (config) => {
+  const ctx = new Context()
+  expect(() => {
+    Provider.apply(ctx, Provider.Config({ ...config, pointerCoordinates: 'normalized-1000-xy' }))
+  })
+    .toThrow('pointerCoordinates normalized-1000-xy requires capabilities [vision]')
+  expect(mountSessionMcp).not.toHaveBeenCalled()
+})

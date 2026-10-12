@@ -20,11 +20,12 @@ import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { DEFAULT_MAX_INSTRUCTION_BYTES, DEFAULT_MAX_PRESENTATION_META_BYTES, RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from './connection.ts'
 import type { ReconnectConfig } from './connection.ts'
 import { registerServerContext } from './server-context.ts'
+import type { McpToolDecorator } from './tools.ts'
 // Side-effect type import: declaration-merges `ctx.tools` onto Context.
 import type {} from '@deepseek-ai/dsh-tools'
 
 export { createMcpToolDefinition } from './tools.ts'
-export type { McpResult, McpToolDefinitionOptions } from './tools.ts'
+export type { McpResult, McpSiblingCall, McpToolDecorator, McpToolDefinitionOptions } from './tools.ts'
 export type { ReconnectConfig, ResolvedReconnectPolicy } from './connection.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -76,6 +77,13 @@ export interface StdioConfig {
   maxPresentationMetaBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
+  /**
+   * Optional registration-time adaptation for every discovered tool, used by
+   * programmatic provider runtimes to rewrite model-facing definitions and
+   * forwarded arguments. Intended for programmatic callers only; a
+   * non-function value rejects plugin activation.
+   */
+  decorateTool?: McpToolDecorator
 }
 
 /** Config for connecting to an MCP server over Streamable HTTP (SSE). */
@@ -102,6 +110,13 @@ export interface StreamableHttpConfig {
   maxPresentationMetaBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
+  /**
+   * Optional registration-time adaptation for every discovered tool, used by
+   * programmatic provider runtimes to rewrite model-facing definitions and
+   * forwarded arguments. Intended for programmatic callers only; a
+   * non-function value rejects plugin activation.
+   */
+  decorateTool?: McpToolDecorator
 }
 
 /** Configuration for one stdio or Streamable HTTP MCP server. */
@@ -158,6 +173,11 @@ export const Config = z.union([
  * @returns startup readiness after connection and initial tool discovery settle.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
+  // Fail loud at load: a programmatically supplied tool adapter that is not a
+  // function can never succeed; YAML configuration never carries this field.
+  if (config.decorateTool !== undefined && typeof config.decorateTool !== 'function') {
+    throw new Error(`mcp-client(${config.serverName}): decorateTool must be a function when provided`)
+  }
   // Fail loud at load: reconnect misconfiguration (including programmatic
   // construction that bypassed Schemastery) rejects THIS instance before any
   // effect registers.

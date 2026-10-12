@@ -5,12 +5,15 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import Schema from '@deepseek-ai/schemastery'
 import { BrowserUseProviderName } from '@deepseek-ai/dsh-browser-use/brand'
 import * as McpClient from '@deepseek-ai/dsh-mcp-client'
+import type { McpToolDecorator } from '@deepseek-ai/dsh-mcp-client'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import { SessionResources } from './index.ts'
 import type {} from '@deepseek-ai/dsh-browser-use'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+
+export type { McpSiblingCall, McpToolDecorator, McpToolDefinitionOptions } from '@deepseek-ai/dsh-mcp-client'
 
 /** Browser launch settings shared by the MCP integrations. */
 export interface BrowserMcpLaunchConfig {
@@ -83,6 +86,13 @@ export interface SessionMcpOptions {
   env?: Record<string, string> | (() => Promise<Record<string, string>>)
   /** Per-call timeout override; omission retains the MCP client default. */
   toolCallTimeoutMs?: number
+  /**
+   * Optional registration-time adaptation for every upstream tool this Session
+   * discovers, letting a provider rewrite model-facing definitions and
+   * forwarded arguments (for example pointer coordinate spaces). Omission
+   * registers upstream tools verbatim.
+   */
+  decorateTool?: McpToolDecorator
 }
 
 interface ClientState {
@@ -149,6 +159,7 @@ export function mountSessionMcp(ctx: Context, options: SessionMcpOptions): void 
             ...options.env === undefined ? {} : { env: typeof options.env === 'function' ? await options.env() : options.env },
             ...agent.session.header.cwd === undefined ? {} : { cwd: agent.session.header.cwd },
             ...options.toolCallTimeoutMs === undefined ? {} : { toolCallTimeoutMs: options.toolCallTimeoutMs },
+            ...options.decorateTool === undefined ? {} : { decorateTool: options.decorateTool },
             failOnStartupError: true,
             reconnect: { enabled: false },
           }))
