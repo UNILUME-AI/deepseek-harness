@@ -21,6 +21,7 @@ Build Desktop installers locally or through Windows or macOS Actions, choose dep
 - [Local macOS DMG without release signing](#local-macos-dmg-without-release-signing)
 - [macOS release signing and diagnostics](#macos-release-signing)
 - [Directory builds and preparation](#directory-and-preparation)
+- [Local packs](#local-packs)
 - [Local Official bundles from a loopback registry](#local-official-bundles-from-a-loopback-registry)
 - [Runtime file selection and installation checks](#runtime-file-selection)
 - [Desktop runtime preparation](#desktop-runtime-preparation)
@@ -207,6 +208,16 @@ pnpm run prepare:desktop
 ```
 
 This diagnostic command is an alternative stopping point, not the first half of a two-command build. A later `package:desktop*` command repeats the official build and preparation so it cannot consume stale dsh packages, runtime files, or dsh content.
+
+<a id="local-packs"></a>
+
+## Local packs
+
+An ignored repository-root `local-packs/` directory can contain one plugin package per immediate child directory; `pnpm-workspace.yaml` already lists `local-packs/*`. Each package needs a `name` and a `build` script that emits `lib/`; a package with a `dsh.client` manifest also contributes Web client modules. The root build builds these packages after the Client bundle and before the Web build. Profile loading resolves the packages without a dependency in `packages/bundle/web-app/package.json`.
+
+`local-packs/bundle.patch.yml` appends after `packages/bundle/web-app/cordis.patch.yml` and applies to Web and Desktop profiles. `local-packs/base.patch.yml` appends after `packages/bundle/base/cordis.patch.yml`. Patch entries use the normal Cordis patch format and package names. With no local packages or overlays, these additions have no effect.
+
+A source launch reads only the `local-packs/` directory beside the nearest `pnpm-workspace.yaml` above the real `@deepseek-ai/dsh` package, so it never reads a parent directory or, from a nested worktree, the main checkout. Desktop packaging includes every local package in the prepared dependency closure and stages the overlays and `local-packs/.packages.json` in the runtime root; the index is written even when it is empty. The packaged runtime reads only that index and the overlays beside it. An installation under any other `node_modules` has no local packs.
 
 <a id="local-official-bundles-from-a-loopback-registry"></a>
 

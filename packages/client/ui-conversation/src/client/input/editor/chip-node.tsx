@@ -7,7 +7,7 @@
  * projection (trigger scanning and TokenSpan coordinates) counts every chip
  * as one U+FFFC instead; see projection.ts.
  */
-import type { JSX } from 'react'
+import type * as React from 'react'
 import type {
   EditorConfig, LexicalNode, NodeKey, SerializedLexicalNode, Spread,
 } from 'lexical'
@@ -26,7 +26,7 @@ export type SerializedReferenceChipNode = Spread<{
 }, SerializedLexicalNode>
 
 /** One inline reference occurrence as an atomic decorator node. */
-export class ReferenceChipNode extends DecoratorNode<JSX.Element> {
+export class ReferenceChipNode extends DecoratorNode<React.JSX.Element> {
   /** Owning source name (serializer routing key). */
   __source: string
   /** Owner-scoped reference id. */
@@ -184,7 +184,7 @@ export class ReferenceChipNode extends DecoratorNode<JSX.Element> {
   }
 
   /** React face rendered into the host element by the decorator portal. */
-  override decorate(): JSX.Element {
+  override decorate(): React.JSX.Element {
     return (
       <ReferenceChip
         label={this.__label}

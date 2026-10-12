@@ -1,6 +1,6 @@
 /** Common browser chrome; a presentation adapter attaches the page inside its content container. */
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
-import type { FormEvent, ReactNode } from 'react'
+import type { SubmitEvent, ReactNode } from 'react'
 import {
   Button,
   IconChevronLeftOutlineRegular,
@@ -16,6 +16,7 @@ import type { BrowserInjected } from '../browser/BrowserController.ts'
 import { emptyBrowserFrame } from '../browser/BrowserFrame.ts'
 import { currentBrowserTarget } from '../browser/BrowserPersistence.ts'
 import type { BrowserStore } from '../browser/store.ts'
+import { CredentialControls } from './CredentialControls.tsx'
 import css from './Browser.module.css'
 
 const EMPTY_FRAME = emptyBrowserFrame()
@@ -69,12 +70,13 @@ export function BrowserBody(props: BrowserBodyProps): ReactNode {
     return hide
   }, [mount, tab.id, tab.signal, tab.actions, viewportId, props.actions])
 
+  const credentials = props.getCredentials?.(tab.id)
   const unknown = frame.address === 'unknown'
   const externalUrl = unknown ? undefined : target?.url
   const sandboxed = frame.sandboxEnabled
   const failure = state?.addressFailure
   const error = frame.error
-  const submit = (event: FormEvent): void => { event.preventDefault(); loadUrl(tab.id, draft) }
+  const submit = (event: SubmitEvent<HTMLFormElement>): void => { event.preventDefault(); loadUrl(tab.id, draft) }
 
   return (
     <div className={css.root}>
@@ -99,6 +101,8 @@ export function BrowserBody(props: BrowserBodyProps): ReactNode {
         <button type="button" className={css.tool} aria-label={t('external')} title={t('external')} disabled={externalUrl === undefined}
           onClick={externalUrl === undefined ? undefined : () => { window.open(externalUrl, '_blank', 'noopener,noreferrer') }}
         ><IconRightUpOutlineRegular size={14} /></button>
+        {credentials !== undefined && <CredentialControls key={frame.target?.url ?? ''} api={credentials}
+          url={frame.address === 'observed' ? frame.target?.url : undefined} t={t} />}
         {sandboxed !== undefined && <button
           type="button"
           className={[css.tool, sandboxed ? '' : css.sandboxOff].join(' ')}

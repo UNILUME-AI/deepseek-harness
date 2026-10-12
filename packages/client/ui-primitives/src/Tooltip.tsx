@@ -1,7 +1,7 @@
 /** Anchor-preserving tooltips; an optional body portal escapes clipping containers and stacking contexts that cap the bubble's z-index. */
 
 import { cloneElement, createContext, useCallback, useContext, useEffect, useId, useRef, useState } from 'react'
-import type { FocusEventHandler, MouseEventHandler, MutableRefObject, ReactElement, Ref } from 'react'
+import type { FocusEventHandler, MouseEventHandler, ReactElement, Ref } from 'react'
 import { createPortal } from 'react-dom'
 import { ShortcutKeys } from './ShortcutKeys.tsx'
 import { placeTooltip, type TooltipSide } from './tooltip-placement.ts'
@@ -64,13 +64,13 @@ export function Tooltip({ label, shortcutKeys, side = 'right', align = 'center',
   const id = useId()
   const [pinned, setPinned] = useState(false)
   const anchor = useRef<HTMLElement | null>(null)
-  // React 18 keeps the element's ref outside props; forward it so wrapping an
+  // React 19 exposes an element's ref as a prop; forward it so wrapping an
   // anchor in Tooltip never silently severs the owner's ref.
-  const childRef = (children as ReactElement<AnchorProps> & { ref?: Ref<HTMLElement> }).ref
+  const childRef = children.props.ref
   const mergedRef = useCallback((el: HTMLElement | null) => {
     anchor.current = el
     if (typeof childRef === 'function') childRef(el)
-    else if (childRef != null) (childRef as MutableRefObject<HTMLElement | null>).current = el
+    else if (childRef != null) childRef.current = el
   }, [childRef])
   const [pos, setPos] = useState<DOMRect | null>(null)
   const bubble = useRef<HTMLSpanElement | null>(null)

@@ -34,8 +34,10 @@ import {
 import { desktopTargetPlatform, resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import { desktopRuntimeFileExclusion } from './runtime-file-policy.ts'
 import { selectOfficeEngine } from '../../../scripts/libreoffice-packages.mjs'
+import { stageLocalPacksRuntimeMetadata } from '../../../scripts/local-packs.ts'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
+const REPOSITORY_ROOT = resolve(APP_ROOT, '..', '..')
 const BUILD_PATHS = resolveDesktopTargetBuildPaths()
 const DSH_OUTPUT_ROOT = BUILD_PATHS.dsh
 const BUILD_ROOT = mkdtempSync(join(tmpdir(), 'dsh-desktop-runtime-'))
@@ -145,6 +147,7 @@ async function main(): Promise<void> {
         filter: source => desktopRuntimeFileExclusion(relative(modules, source), target, officeEngine) === undefined,
       })
     })
+    stageLocalPacksRuntimeMetadata(REPOSITORY_ROOT, DSH_OUTPUT_ROOT)
     writeFileSync(join(DSH_OUTPUT_ROOT, 'package.json'), `${JSON.stringify({
       name: '@deepseek-ai/dsh-desktop-runtime', private: true, version: release.version, type: 'module',
       dependencies: Object.fromEntries(packageSet.packages.map(entry => [entry.name, entry.version])),

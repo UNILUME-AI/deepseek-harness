@@ -51,7 +51,7 @@ function afterPaint(run: () => void): () => void {
  */
 export function AccountNoticeStack({ notices, anchor, title, closeLabel, onShown, onDismiss }: {
   notices: readonly BonusNotice[]
-  anchor: RefObject<HTMLElement>
+  anchor: RefObject<HTMLElement | null>
   title: string
   closeLabel: string
   /** Called after the foreground card has passed a visible presented frame. */

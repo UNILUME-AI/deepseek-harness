@@ -7,9 +7,8 @@
  */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
-import type { FC } from 'react'
 import { StaleAuthorizationError } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ScopedStandardSourceBinding, SlotRendererHost } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ScopedStandardSourceBinding, SlotComponent, SlotRendererHost } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotRegistry } from '../src/client/registry.ts'
 
 // Test-only slot keys (merged so the typed entries/spec faces accept them).
@@ -22,7 +21,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-const C: FC<object> = () => null
+const C: SlotComponent<object> = () => null
 
 /**
  * Register/install/renderSlot through a type-erased view: the typed register
@@ -522,7 +521,7 @@ describe('declaration injection', () => {
     }, C)
     const componentA = (): null => null
     const componentB = (): null => null
-    const mount = (name: string, component: FC<object>) => bench.ctx.plugin({
+    const mount = (name: string, component: SlotComponent<object>) => bench.ctx.plugin({
       name,
       inject: ['slots'],
       apply: (ctx: Context) => { ctx.slots.inject('t.host', () => ctx.slots.register({ name: 't.host' }, component)) },

@@ -42,9 +42,11 @@
 # `dsh.client` rows are the browser roster the modules node half scans into
 # window.__DSH_BOOT__; the modules row is simultaneously a host row.
 - insert:
+    # fork: desktop product telemetry is off unconditionally (upstream
+    # defaults to DeepSeek's own collector on the desktop profile).
     - id: desktop-product-telemetry
       name: '@deepseek-ai/dsh-host-product-telemetry-otel'
-      disabled: !!js "ctx.get('profileContext')?.name !== 'desktop'"
+      disabled: true
       config:
         scheduledDelayMillis: 30000
         timeoutMillis: 15000
@@ -56,7 +58,7 @@
 
     - id: product-analytics
       name: '@deepseek-ai/dsh-client-product-analytics'
-      disabled: !!js "ctx.get('profileContext')?.name !== 'desktop'"
+      disabled: true
       config:
         enabled: true
         appVersion: !!js process.env.DSH_CLIENT_VERSION

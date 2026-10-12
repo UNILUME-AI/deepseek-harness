@@ -1,4 +1,5 @@
 /** Composition of one navigation provider and its presentation. */
+import type { BrowserCredentials } from '../../types.ts'
 import type { BrowserPresentation } from '../view/BrowserPresentation.ts'
 import type { BrowserFrame } from './BrowserFrame.ts'
 import type { BrowserTabState } from './BrowserPersistence.ts'
@@ -12,6 +13,7 @@ export interface BrowserPageOptions {
 
 /** The owning controller disposes frame; UI mounts only presentation. */
 export interface BrowserPage {
+  readonly credentials?: BrowserCredentials
   readonly frame: BrowserFrame
   readonly presentation: BrowserPresentation
 }

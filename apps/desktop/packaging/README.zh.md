@@ -21,6 +21,7 @@ description: "在本地或 Windows／macOS Actions 中生成 Desktop 安装包�
 - [无发布签名的本地 macOS DMG](#local-macos-dmg-without-release-signing)
 - [macOS 发布签名与诊断](#macos-release-signing)
 - [目录构建与准备](#directory-and-preparation)
+- [本地插件包](#local-packs)
 - [用回环 registry 安装本地 Official 包](#local-official-bundles-from-a-loopback-registry)
 - [运行时文件筛选与安装检查](#runtime-file-selection)
 - [Desktop 运行时准备](#desktop-runtime-preparation)
@@ -207,6 +208,16 @@ pnpm run prepare:desktop
 ```
 
 这条诊断命令是另一种停止位置，并非两条命令构建流程的前半段。之后执行 `package:desktop*` 时仍会重新完成正式构建与准备，避免使用陈旧的 dsh 包、运行时文件或 dsh 内容。
+
+<a id="local-packs"></a>
+
+## 本地插件包
+
+仓库根目录可放置被忽略的 `local-packs/`，每个直接子目录是一个插件包；`pnpm-workspace.yaml` 已包含 `local-packs/*`。每个包需在 `package.json` 中提供 `name` 和产出 `lib/` 的 `build` 脚本；带 `dsh.client` 清单的包还会提供 Web 客户端模块。根构建在 Client bundle 之后、Web 构建之前构建这些包。profile 加载器会解析这些包，无需在 `packages/bundle/web-app/package.json` 声明依赖。
+
+`local-packs/bundle.patch.yml` 追加在 `packages/bundle/web-app/cordis.patch.yml` 之后，对 Web 与 Desktop profile 均生效。`local-packs/base.patch.yml` 追加在 `packages/bundle/base/cordis.patch.yml` 之后。补丁行使用常规 Cordis 补丁格式与包名。没有本地包或补丁时，这些扩展不产生影响。
+
+源码启动只读取 `@deepseek-ai/dsh` 真实包目录之上最近的 `pnpm-workspace.yaml` 旁的 `local-packs/`，因此不会读取上层目录，嵌套 worktree 也不会读取主检出的本地包。Desktop 打包会把全部本地包放入准备好的依赖闭包，并把补丁文件和 `local-packs/.packages.json` 暂存到 runtime 根目录；即使没有本地包也会写出该索引。打包后的 runtime 只读取该索引及其旁的补丁文件。安装在其他 `node_modules` 下的 dsh 没有本地包。
 
 <a id="local-official-bundles-from-a-loopback-registry"></a>
 

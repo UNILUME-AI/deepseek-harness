@@ -26,6 +26,7 @@ import {
 import { capture } from '../../../scripts/release/process.ts'
 import { tarballFiles } from '../../../scripts/release/tarball.ts'
 import { resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
+import { discoverLocalPacks } from '../../../scripts/local-packs.ts'
 
 const DSH_PACKAGE = '@deepseek-ai/dsh'
 const ROOT_PACKAGES = [DSH_PACKAGE, DESKTOP_HOST_PACKAGE] as const
@@ -54,14 +55,16 @@ function dependencyNames(manifest: Readonly<Record<string, unknown>>, section: s
  * Select workspace dependencies rooted at dsh and its private Host; npm resolves external packages.
  * Reads the repository workspace manifest and package manifests to distinguish required local packages from npm-resolved externals.
  * @param available - Packed packages indexed by package name.
+ * @param repositoryRoot - Checkout whose workspace and local packs define local packages.
  * @returns Selected packages sorted by name.
  */
 export function selectDesktopPackageClosure(
   available: ReadonlyMap<string, PackedDesktopPackage>,
+  repositoryRoot = REPOSITORY_ROOT,
 ): PackedDesktopPackage[] {
-  const workspace = yaml.load(readFileSync(join(REPOSITORY_ROOT, 'pnpm-workspace.yaml'), 'utf8')) as { packages: string[] }
-  const workspaceNames = new Set(globSync(workspace.packages.map(pattern => `${pattern}/package.json`), { cwd: REPOSITORY_ROOT })
-    .map(path => (JSON.parse(readFileSync(join(REPOSITORY_ROOT, path), 'utf8')) as { name: string }).name))
+  const workspace = yaml.load(readFileSync(join(repositoryRoot, 'pnpm-workspace.yaml'), 'utf8')) as { packages: string[] }
+  const workspaceNames = new Set(globSync(workspace.packages.map(pattern => `${pattern}/package.json`), { cwd: repositoryRoot })
+    .map(path => (JSON.parse(readFileSync(join(repositoryRoot, path), 'utf8')) as { name: string }).name))
   const selected = new Map<string, PackedDesktopPackage>()
   const visit = (name: string): void => {
     if (selected.has(name)) return
@@ -84,6 +87,7 @@ export function selectDesktopPackageClosure(
     if (!available.has(name)) throw new Error(`desktop package set: packed inputs omit ${name}`)
     visit(name)
   }
+  for (const pack of discoverLocalPacks(repositoryRoot)) visit(pack.name)
   return [...selected.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([, packed]) => packed)
 }
 

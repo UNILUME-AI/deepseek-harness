@@ -2,7 +2,7 @@
 
 import type { DesktopKeyboardApi, DesktopShortcutsApi } from '@deepseek-ai/dsh-client-shortcuts/protocol'
 import type { IpcMainInvokeEvent } from 'electron'
-import type { DesktopBrowserBridge } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
+import type { DesktopBrowserBridge, DesktopCredentialsBridge } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
 
 /** IPC channel names kept private to the desktop application bundle. */
 export const DESKTOP_IPC = {
@@ -31,6 +31,10 @@ export const DESKTOP_IPC = {
   windowFullscreen: 'dsh-desktop:window-fullscreen',
   windowsAppearance: 'dsh-desktop:windows-appearance',
   windowsMenu: 'dsh-desktop:windows-menu',
+  credentialsList: 'dsh-desktop:credentials-list',
+  credentialsAdd: 'dsh-desktop:credentials-add',
+  credentialsRemove: 'dsh-desktop:credentials-remove',
+  credentialsFill: 'dsh-desktop:credentials-fill',
 } as const
 
 /** Desktop release update state rendered by desktop-owned UI. */
@@ -72,6 +76,7 @@ export interface DesktopUpdatePresentation {
 export interface DshDesktopProductApi {
   readonly protocolVersion: 1
   readonly browser: DesktopBrowserBridge
+  readonly credentials: DesktopCredentialsBridge
   readonly keyboard: DesktopKeyboardApi
   readonly shortcuts: DesktopShortcutsApi
   /**

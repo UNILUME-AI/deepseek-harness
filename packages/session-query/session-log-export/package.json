@@ -67,7 +67,7 @@
     "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/dsh-session-persistence": "workspace:*",
     "@deepseek-ai/dsh-session-query": "workspace:*",
-    "react": "^18.2.0"
+    "react": "^19.3.0"
   },
   "dsh": {
     "client": {

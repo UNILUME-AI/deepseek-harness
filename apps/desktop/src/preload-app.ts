@@ -8,12 +8,13 @@ import { markDocumentPlatform, syncWindowFullscreen } from './preload-platform.t
 import { syncNativeTheme } from './preload-theme.ts'
 import { syncWindowsAppearance } from './preload-windows.ts'
 import { installMandatoryUpdateOverlay } from './preload-mandatory-overlay.ts'
-import { createDesktopBrowserBridge } from './preload-browser.ts'
+import { createDesktopBrowserBridge, createDesktopCredentialsBridge } from './preload-browser.ts'
 
 function createProductApi(): DshDesktopProductApi {
   return {
     protocolVersion: 1,
     browser: createDesktopBrowserBridge(),
+    credentials: createDesktopCredentialsBridge(),
     deviceInfo: () => ipcRenderer.invoke(DESKTOP_IPC.deviceInfo) as Promise<string>,
     keyboard: {
       closeWindow: revision => ipcRenderer.invoke(DESKTOP_IPC.shortcutsCloseWindow, revision) as Promise<void>,

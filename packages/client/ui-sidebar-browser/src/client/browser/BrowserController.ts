@@ -2,6 +2,7 @@
 import { createSnapshotStore, type BoundActions, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { TabId } from '@deepseek-ai/dsh-client-ui-dockkit'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
+import type { BrowserCredentials } from '../../types.ts'
 import type { BrowserFrameState } from './BrowserFrame.ts'
 import type { BrowserPage, BrowserPageFactory } from './BrowserPage.ts'
 import { currentBrowserTarget, type BrowserTabState } from './BrowserPersistence.ts'
@@ -114,6 +115,9 @@ export class BrowserController implements HostObservable<BrowserControllerState>
     this.command(() => { this.page.frame.loadUrl(parsed.target) })
   }
 
+  /** @returns desktop-only operations bound to this tab's live guest. */
+  getCredentials(): BrowserCredentials | undefined { return this.page.credentials }
+
   /** Delegate Back to the page's navigation provider. */
   goBack(): void { this.command(() => { this.page.frame.goBack() }) }
   /** Delegate Forward to the page's navigation provider. */
@@ -181,6 +185,8 @@ export interface BrowserMountRequest {
 
 /** Plain Slot callbacks and a framework-bound state source, not a desktop protocol. */
 export interface BrowserInjected {
+  /** @param tabId - owning tab. @returns desktop-only credential controls when supplied by its provider. */
+  getCredentials?(tabId: TabId): BrowserCredentials | undefined
   readonly keyedHooks: {
     readonly browserState: (key: string) => HostObservable<BrowserControllerState> | undefined
   }
@@ -222,6 +228,7 @@ export function createBrowserControllers(actions: BoundActions<BrowserStore>, cr
   const controller = (id: TabId): BrowserController | undefined => controllers.get(id)?.controller
   return {
     keyedHooks: { browserState: key => controller(key as TabId) },
+    getCredentials: id => controller(id)?.getCredentials(),
     mount(request) {
       const { tabId, signal } = request
       if (signal.aborted) return () => {}

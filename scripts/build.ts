@@ -11,6 +11,7 @@
 
 import { rmSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import {
   CLIENT_BUILD_RECORD_PATH,
@@ -20,6 +21,7 @@ import {
   resolveClientBuildEnvironment,
   writeClientBuildRecord,
 } from './client-build-environment.ts'
+import { discoverLocalPacks } from './local-packs.ts'
 import { aggregateBuildArgs, aggregateCheckArgs, contractSteps, libraryBuildSteps } from './compile-referenced-projects.ts'
 import type { LibraryStep } from './compile-referenced-projects.ts'
 import { pnpmCommand } from './release/process.ts'
@@ -117,6 +119,27 @@ export function buildGates(
   return gates
 }
 
+/**
+ * Insert the local-packs build between the Client bundle and the Web build, which scans their `dsh.client` manifests.
+ * @param gates - Gate graph from {@link buildGates}.
+ * @param root - Repository root containing `local-packs/`.
+ * @param env - Environment overlay applied to the inserted step.
+ * @returns `gates` unchanged when no local pack exists or no Web build is planned; otherwise the graph with the Web build waiting for the local packs.
+ */
+export function withLocalPacks(gates: readonly Gate[], root: string, env: Record<string, string | undefined> = {}): Gate[] {
+  if (!gates.some(gate => gate.id === 'web') || discoverLocalPacks(root).length === 0) return [...gates]
+  const localPacks: Gate = {
+    id: 'local-packs',
+    label: 'Local packs',
+    displayCommand: 'tsx scripts/local-packs.ts',
+    command: process.execPath,
+    args: ['--import', import.meta.resolve('tsx/esm'), fileURLToPath(new URL('local-packs.ts', import.meta.url)), root],
+    needs: ['client-bundle'],
+    env,
+  }
+  return gates.flatMap(gate => gate.id === 'web' ? [localPacks, { ...gate, needs: ['local-packs'] }] : [gate])
+}
+
 function libraryGate(step: LibraryStep, needs: readonly string[], env: Record<string, string | undefined>): Gate {
   return {
     id: step.id,
@@ -172,7 +195,7 @@ async function main(): Promise<number> {
   const clientEnvironment = resolveClientBuildEnvironment(repositoryEnvironment, profile ?? process.env[CLIENT_BUILD_PROFILE_SELECTOR])
   const environment = environmentOverlay(process.env, clientBuildProcessEnvironment(process.env, clientEnvironment))
   rmSync(resolve(root, CLIENT_BUILD_RECORD_PATH), { force: true })
-  const gates = buildGates(root, scope, environment)
+  const gates = withLocalPacks(buildGates(root, scope, environment), root, environment)
   const exitCode = await runAggregate(name, gates, workers(gates))
   if (exitCode !== 0) return exitCode
   const record = writeClientBuildRecord(root, clientEnvironment)

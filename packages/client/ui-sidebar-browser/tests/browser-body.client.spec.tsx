@@ -281,3 +281,15 @@ describe('BrowserBody', () => {
   })
 
 })
+
+it('does not show credential controls in the Web iframe provider', () => {
+  const { view } = mountBrowser({ url: 'https://example.com/' })
+  expect(view.queryByRole('button', { name: zh['credentials.open'] })).toBeNull()
+})
+
+it('shows credential controls when supplied by the desktop page provider', () => {
+  const { view } = mountBrowser(undefined, { createPage: options => ({ ...createIframePage(options), credentials: {
+    list: vi.fn(async () => []), add: vi.fn(), remove: vi.fn(), fill: vi.fn(),
+  } }) })
+  expect(view.getByRole('button', { name: zh['credentials.open'] })).toBeDefined()
+})
