@@ -297,17 +297,22 @@ describe('PermissionPresetService', () => {
 })
 
 describe('new-session default', () => {
-  it('rejects persisted Auto before publication when its integration is absent', async () => {
+  it('restores persisted Auto as workspace-write with ask approval when its integration is absent', async () => {
     const ctx = await mounted()
     const source = freshSession('auto-source')
     source.append('permission/preset', { preset: AUTO_PRESET })
     source.append('sandbox/mode', { mode: 'danger-full-access' })
     source.append('approval/policy', { policy: 'never' })
+    const seeded = source.snapshotEvents().length
 
-    const id = SessionId('auto-without-integration')
-    expect(() => ctx.sessions.create(id, { seed: source.snapshotEvents() })).toThrow(/cannot restore preset "auto"/)
-    expect(ctx.sessions.get(id)).toBeUndefined()
-    expect(source.snapshotEvents().at(-1)).toMatchObject({ type: 'approval/policy' })
+    const resumed = ctx.sessions.create(SessionId('auto-without-integration'), { seed: source.snapshotEvents() })
+    expect(ctx.permissionPresets.current(resumed)).toBe('workspace-write')
+    expect(resumed.snapshotEvents().slice(seeded).filter(event => event.type !== 'session/end-seed').map(event => [event.type, event.data])).toEqual([
+      ['sandbox/mode', { mode: 'workspace-write' }],
+      ['approval/policy', { policy: 'ask' }],
+      ['permission/preset', { preset: 'workspace-write' }],
+    ])
+    expect(source.snapshotEvents()).toHaveLength(seeded)
   })
 
   it('admits persisted Auto through the live integration without rewriting it', async () => {
