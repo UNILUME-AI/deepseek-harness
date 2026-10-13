@@ -71,6 +71,8 @@ export {
   PROFILE_TEMPLATES,
   PROFILES_DIR,
   readProfileManifest,
+  readExcludedBundles,
+  bundleExclusionReason,
   reportSkippedBundles,
   resolveBundleDir,
   resolveProfileDir,

@@ -12,7 +12,7 @@ import z from '@deepseek-ai/schemastery'
 import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
 import { pluginEntryId, readPluginInventory } from '@deepseek-ai/dsh-host-plugin-inventory'
 import {
-  readPluginMeta, readProfileManifest, resolveBundleDir, loadOverlayPatches, composeEntries,
+  readExcludedBundles, bundleExclusionReason, readPluginMeta, readProfileManifest, resolveBundleDir, loadOverlayPatches, composeEntries,
   readProfilePatches, OPTIONAL_BUNDLES, bundlePatchPaths,
   evaluatePluginCompatibility, readProfileCompatibility, readProfileVersionExemptions,
   setProfileVersionExemption, PROFILE_COMPATIBILITY_FILENAME,
@@ -20,7 +20,7 @@ import {
 } from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-hmr'
 import type { ProfileContext, ProfileManifest } from '@deepseek-ai/dsh-app-boot'
-import { bundleManifest, readProfileRegistry, registryArguments, runProfilePnpm, saveManifest, viewProfilePackage } from './operations.ts'
+import { anchorPathSpec, installSpecExclusion, bundleManifest, readProfileRegistry, registryArguments, runProfilePnpm, saveManifest, viewProfilePackage } from './operations.ts'
 import { classifyInstallFailure } from './install-failure.ts'
 import { officialBundleInstallTarget } from './official-install-target.ts'
 import { dependencySpec, InvalidInstallSpecError, parseInstallSpec, type ParsedInstallSpec } from './install-spec.ts'
@@ -322,9 +322,11 @@ export class PluginManager extends TypertRemoteService {
     const installation = JSON.parse(readFileSync(this.profile.installAnchor, 'utf8')) as InstallationManifest
     const catalog = new Map(OFFICIAL_ON_DEMAND_CATALOG.map(entry => [entry.packageName, entry]))
     const names = [...new Set([...selected, ...dependencies, ...Object.keys(installation.dependencies ?? {}), ...catalog.keys()])]
+    const excluded = readExcludedBundles(this.profile.installAnchor)
     const bundles: BundleInfo[] = []
     const runtimeVersion = getDshRuntimeVersion()
     for (const name of names) {
+      if (excluded.has(name)) continue
       const installed = dependencies.includes(name)
       const optional = OPTIONAL_BUNDLES.includes(name)
       const enabled = selected.includes(name)
@@ -361,6 +363,7 @@ export class PluginManager extends TypertRemoteService {
             ...(readOnlyReason === undefined ? {} : { readOnlyReason }), error: targetError ?? { code: 'not-bundle' }, rows: [], overrides: [] })
           continue
         }
+        if (info.name !== undefined && excluded.has(info.name)) continue
         version = info.version
         const compatibility = evaluatePluginCompatibility(info, exemptions)
         if (compatibility !== undefined && !compatibility.exempted) throw new ManagementFailure('incompatible-version', [incompatiblePlugin(compatibility)])
@@ -435,12 +438,17 @@ export class PluginManager extends TypertRemoteService {
           return refused('not-a-package', `no readable package.json at the path: ${messageOf(error)}`)
         }
         const inspection = inspectionOf('path', read, registry)
+        const exclusion = installSpecExclusion(spec, readExcludedBundles(this.profile.installAnchor))
+        if (exclusion !== undefined) return refused('excluded', exclusion)
         if (inspection.name === undefined) return refused('not-a-package', 'the package.json names no package')
         if (known.has(inspection.name)) return refused('already-installed', `${inspection.name} is already installed`)
         if (!inspection.bundle) return refused('not-a-bundle', `${inspection.name} declares no dsh.bundle`)
         return inspection
       }
       case 'registry': {
+        const excluded = readExcludedBundles(this.profile.installAnchor)
+        const exclusion = installSpecExclusion(spec, excluded)
+        if (exclusion !== undefined) return refused('excluded', exclusion)
         if (known.has(parsed.name)) return refused('already-installed', `${parsed.name} is already installed`)
         const registries: Registry[] = []
         const refusedBy = (problem: PluginInspectProblem, reason: string): PluginSpecInspection =>
@@ -473,7 +481,9 @@ export class PluginManager extends TypertRemoteService {
           const latest: unknown = Array.isArray(answer) ? answer.at(-1) : answer
           if (typeof latest !== 'object' || latest === null) return refusedBy('unknown', 'pnpm view answered no package')
           const inspection = inspectionOf('registry', latest, current)
-          const named = inspection.name === undefined ? { ...inspection, name: parsed.name } : inspection
+          const named = { ...inspection, name: inspection.name ?? parsed.name }
+          const exclusion = bundleExclusionReason(named.name, excluded)
+          if (exclusion !== undefined) return refusedBy('excluded', exclusion)
           if (!named.bundle) return refusedBy('not-a-bundle', `${named.name} declares no dsh.bundle`)
           return named
         }
@@ -520,6 +530,7 @@ export class PluginManager extends TypertRemoteService {
    * only network failures or timeouts stop installation, while pnpm owns authentication and transport fallback. A run
    * that fails, is cancelled, or adds a package without a bundle patch restores
    * `package.json` and `pnpm-lock.yaml` as they were; downloaded files can stay.
+   * Requesting activation of an excluded installed bundle also restores these files, including for an existing dependency.
    * @param spec One package spec, including local paths relative to the invocation directory.
    * @param options Whether to activate the installed bundle (defaults to true), the request id a cancellation names,
    * the pending build scripts to allow, whether to save an exact dependency, and the registry asked first.
@@ -536,6 +547,8 @@ export class PluginManager extends TypertRemoteService {
     }
     const result = this.change(async (result) => {
       if (spec.trim() === '' || spec.startsWith('-')) throw new ManagementFailure('invalid-spec')
+      const exclusion = installSpecExclusion(anchorPathSpec(spec, this.profile.cwd), readExcludedBundles(this.profile.installAnchor))
+      if (exclusion !== undefined) throw new Error(exclusion)
       if (stopped()) throw new InstallCancelledError()
       const before = readProfileManifest('dsh', this.profile.dir).dependencies ?? {}
       // With HMR, an installed package is removed before another version is installed, so its plugins stop first.
@@ -621,6 +634,10 @@ export class PluginManager extends TypertRemoteService {
         const dir = resolveBundleDir('dsh', name, this.profile.installAnchor, this.profile.dir)
         const manifest = bundleManifest(name, this.profile.dir, this.profile.installAnchor)
         if (manifest?.dsh?.bundle === undefined) throw new ManagementFailure('not-bundle')
+        if (options?.enabled !== false) {
+          const exclusion = bundleExclusionReason(manifest.name ?? name, readExcludedBundles(this.profile.installAnchor))
+          if (exclusion !== undefined) throw new Error(exclusion)
+        }
         const compatibility = evaluatePluginCompatibility(manifest, readProfileVersionExemptions(this.profile.dir))
         if (compatibility !== undefined && !compatibility.exempted) throw new ManagementFailure('incompatible-version', [incompatiblePlugin(compatibility)])
         for (const file of bundlePatchPaths(dir, manifest.dsh.bundle)) loadOverlayPatches('dsh', file)
@@ -806,12 +823,18 @@ export class PluginManager extends TypertRemoteService {
   }
 
   private async selectBundle(name: string, enabled: boolean): Promise<void> {
+    if (enabled) {
+      const exclusion = bundleExclusionReason(name, readExcludedBundles(this.profile.installAnchor))
+      if (exclusion !== undefined) throw new Error(exclusion)
+    }
     const manifest = readProfileManifest('dsh', this.profile.dir)
     const previous = bundleSelection(manifest)
     if (enabled || !previous.includes(name)) {
       const metadata = bundleManifest(name, this.profile.dir, this.profile.installAnchor)
       if (metadata === undefined) throw new ManagementFailure('not-bundle')
       if (enabled) {
+        const exclusion = bundleExclusionReason(metadata.name ?? name, readExcludedBundles(this.profile.installAnchor))
+        if (exclusion !== undefined) throw new Error(exclusion)
         const compatibility = evaluatePluginCompatibility(metadata, readProfileVersionExemptions(this.profile.dir))
         if (compatibility !== undefined && !compatibility.exempted) throw new ManagementFailure('incompatible-version', [incompatiblePlugin(compatibility)])
         this.bundleRows(name)

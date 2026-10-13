@@ -2430,3 +2430,23 @@ describe('on-demand Official bundles', () => {
     expect(detail.querySelector('[data-plugin-rows]')).toBeNull()
   })
 })
+
+it('shows an installation exclusion in the selected language under the install field', () => {
+  const { setLanguage } = renderTab({ install: {
+    ...IDLE_INSTALL, open: true, spec: 'blocked-addon',
+    inputError: { problem: 'excluded', reason: "blocked-addon is excluded by this installation's dsh.excludeBundles" },
+  } })
+  const messages: string[] = []
+  for (const dictionary of [en, zh]) {
+    setLanguage(dictionary)
+    expect(screen.getByRole('alert').textContent).toBe(dictionary.installProblemExcluded)
+    expect(screen.getByRole('textbox', { name: dictionary.installSpecLabel }).getAttribute('aria-invalid')).toBe('true')
+    messages.push(screen.getByRole('alert').textContent ?? '')
+  }
+  expect(messages).toMatchInlineSnapshot(`
+    [
+      "This installation excludes this plugin bundle, so it cannot be installed or enabled.",
+      "当前安装配置排除了这个插件包，无法安装或启用。",
+    ]
+  `)
+})
