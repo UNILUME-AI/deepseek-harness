@@ -4,14 +4,13 @@
  * text-storage mechanics — resolve, stat, read/stream, list, the atomic
  * write and the read-match-write edit critical section — are the local
  * implementation's, verbatim; this package adds only the per-call POLICY fence
- * on the two mutations. Reads pass through untouched: every mode permits
- * reading.
+ * on mutations and content reads. Confined modes deny provider-owned secret
+ * files and additional policy exclusions by canonical path and file identity.
  *
  * The fence is a policy check in TRUSTED code over a MODEL-CONTROLLED path,
  * NOT a kernel boundary — the operations are the seam's own (open, rename),
- * and only the target path is untrusted, so canonicalize-then-contain is the
- * complete answer to this surface. This is containment, not a security
- * boundary; kernel-grade isolation of untrusted CODE stays `ctx.shell`'s job
+ * and only the target path is untrusted. Checks use current canonical paths
+ * and file identities; kernel-grade isolation of untrusted CODE stays `ctx.shell`'s job
  * (`@deepseek-ai/dsh-bash-sandbox`). The residual
  * TOCTOU (an ancestor symlink swapped between the containment re-check and the
  * syscall) is narrowed by re-canonicalizing immediately before delegating and
@@ -31,7 +30,7 @@ import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 import type { Config as LocalConfig } from '@deepseek-ai/dsh-fs-local'
 import { FsError } from '@deepseek-ai/dsh-fs'
 import type { FsEditOutcome, FsEditRequest, FsTarget, FsVersion, FsWriteIntent, FsWriteOutcome } from '@deepseek-ai/dsh-fs'
-import { writableRoots } from '@deepseek-ai/dsh-sandbox'
+import { deniedReadPaths, isReadDenied, writableRoots } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { isPathUnder } from './containment.ts'
@@ -64,6 +63,39 @@ export class SandboxedFileSystem extends LocalFileSystem {
   /** The deployment default mode — the capability fact the tool layer reads to advertise escalation. */
   override get sandboxMode(): SandboxMode {
     return this.defaultMode
+  }
+
+  override async readText(target: FsTarget, signal?: AbortSignal): Promise<string> {
+    return super.readText(await this.checkedReadTarget(target), signal)
+  }
+
+  override async streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>> {
+    return super.streamText(await this.checkedReadTarget(target), signal)
+  }
+
+  override async readBytes(target: FsTarget, signal: AbortSignal | undefined, maxBytes: number): Promise<Uint8Array> {
+    return super.readBytes(await this.checkedReadTarget(target), signal, maxBytes)
+  }
+
+  override async readByteRange(target: FsTarget, range: { offset: number; length: number }, signal?: AbortSignal): Promise<Uint8Array> {
+    return super.readByteRange(await this.checkedReadTarget(target), range, signal)
+  }
+
+  /** Recheck immediately before content access; agentless calls use the deployment policy. */
+  private async checkedReadTarget(target: FsTarget): Promise<FsTarget> {
+    const session = this.ctx.get('agents')?.currentInitiator()?.session
+    const policy = this.ctx.sandboxPolicy.resolve({ session })
+    if (policy.mode === 'danger-full-access') return target
+    const fresh = await this.resolve(target.displayPath)
+    this.assertReadable(fresh, policy)
+    return fresh
+  }
+
+  /** Deny content reads, including mutation diff/guard reads, through every alias of a protected file. */
+  private assertReadable(target: FsTarget, policy: SandboxExecutionPolicy): void {
+    if (isReadDenied(this.processPath(target), deniedReadPaths(this.ctx, policy))) {
+      throw new FsError(`cannot read "${target.displayPath}": file access denied under ${policy.mode} mode`, 'FS_SANDBOX_DENIED')
+    }
   }
 
   /**
@@ -130,6 +162,7 @@ export class SandboxedFileSystem extends LocalFileSystem {
     // symlink ancestor swapped since the tool resolved this target), and the
     // mutation delegates with THIS fresh target — never the stale one.
     const fresh = await this.resolve(target.displayPath)
+    this.assertReadable(fresh, policy)
     let contained = false
     for (const root of writableRoots(policy)) {
       if (await isPathUnder(fresh.targetKey, root)) {

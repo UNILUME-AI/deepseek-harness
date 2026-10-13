@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-fs-sandbox` 按各会话的沙箱模式限制模型对文件的写入与编辑，同时保留本地文件系统的读取行为。`read-only` 拒绝所有变更；`workspace-write` 只允许目标位于会话工作区或平台临时根目录内；`danger-full-access` 不限制变更。当会话需要将文件变更限制在工作区内时，使用它代替 `fs-local`，并加载 `ctx.sandboxPolicy`。被拒绝的操作返回 `FS_SANDBOX_DENIED`，文件系统工具会显示当前模式和同轮次升级提示。
+`dsh-fs-sandbox` 按会话沙箱模式限制文件变更，并在 `read-only` 和 `workspace-write` 下拒绝读取凭据文件及附加禁读项。`read-only` 拒绝所有变更；`workspace-write` 只允许工作区和平台临时目录内的变更；`danger-full-access` 不限制读写。加载 `ctx.sandboxPolicy` 并以本包替换 `fs-local`。拒绝读取返回 `FS_SANDBOX_DENIED`；变更工具另提供升级提示。
 
 ## 目录
 
@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-当模型的文件写入与编辑必须受会话沙箱模式约束、而读取保持不受约束时，挂载此后端以替代 `fs-local`。围栏按调用生效：工具层把调用会话的模式与工作区根目录解析为与 bash runner 收到的相同策略，因此文件系统与 shell 两个能力族绝不会约束到不同根目录。
+当模型的文件读写需要遵守会话沙箱策略时，以本包替换 `fs-local`。可写根与 Seatbelt 共享 `writableRoots`，禁读文件与进程沙箱共享 `deniedReadPaths`。
 
 ### 最小组合
 
@@ -47,7 +47,7 @@ kind: "package-reference"
 
 ### 可观察的成功与失败
 
-读取、列出、元数据操作与只读监听均与 `fs-local` 完全一致；变更围栏不限制观察。被拒绝的变更返回携带有效模式的 `FS_SANDBOX_DENIED` 错误；经工具，模型会看到 `[sandbox: file access denied under <mode> mode]` 及唯一一次获批更宽权限的重试提示，与 bash 的拒绝完全相同。获得批准升级的会话可以在该次调用中以严格更宽的模式重试同一操作。
+文本、流、全量字节和字节窗口读取在受限模式下检查禁读名单；普通文件读取、目录列出、元数据及只读监听保持本地行为。读取的策略来自当前发起 agent 的会话，无 agent 时使用部署默认值。被拒绝的读取返回 `FS_SANDBOX_DENIED`；变更拒绝经工具呈现 `[sandbox: file access denied under <mode> mode]` 与单次升级提示。
 
 -----
 
@@ -73,6 +73,8 @@ kind: "package-reference"
 ### 变更如何被围栏
 
 每次变更先解析按调用策略（`danger-full-access` 原样返回调用方目标；`read-only` 抛出 `FS_SANDBOX_DENIED`），`workspace-write` 则立即重新规范化目标，并要求它位于由唯一的 `writableRoots` 函数派生的某个可写根之下——与 Seatbelt profile 授权的集合相同，因此 fs 围栏与 bash runner 不会漂移。被变更的正是这个新目标，因此工具解析后被替换的符号链接祖先也会被发现。
+
+读取前重新解析目标，并用共享名单比较规范路径与设备号/inode。符号链接、`..`、大小写别名和指向当前凭据 inode 的硬链接均被拒绝；变更同样先检查读取排除，以免 diff 或匹配读取泄露凭据。
 
 ### 威胁模型
 
@@ -123,6 +125,8 @@ kind: "package-reference"
 - **策略围栏，而非内核边界**：该检查是可信代码处理模型控制的路径，因此解析到系统调用之间残留的 TOCTOU 会被原位重新规范化缩小，但不会消除；对抗性宿主进程不在范围内。不可信代码的内核级隔离仍属于 `ctx.shell`。
 - **围栏与 runner 的一致性由单一所有方派生**：可写集合来自 `writableRoots`，该函数与 Seatbelt profile 共享；在其他位置定义可写集合的 runner profile 会发生漂移。
 - **要求 `ctx.sandboxPolicy`**：工具使用它解析每个会话策略，后端用它处理无 agent（智能体）调用的回退；未组合该服务时，后端不会实施约束。
+
+- **读取的已知边界**——检查与打开之间仍存在并发替换竞态；已打开的流不会在凭据变更时撤销。inode 比较只覆盖当前文件，凭据原子替换后遗留的旧硬链接副本无法由当前文件名识别。macOS 与 Windows 的路径比较保守忽略大小写，因此大小写敏感卷可能多拒绝大小写不同的文件。`danger-full-access` 绕过围栏。
 
 <a id="dev-note"></a>
 ### 开发备注

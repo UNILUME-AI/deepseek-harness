@@ -76,6 +76,8 @@ export interface Config {
    * `process.cwd()`). Normal agent calls use their session cwd instead.
    */
   workspaceRoot?: string
+  /** Additional absolute host file paths denied in confined modes; does not replace credential-provider paths. */
+  deniedReadPaths?: string[]
 }
 
 /** Inputs that select the sandbox policy for one capability call. */
@@ -114,6 +116,7 @@ export class SandboxPolicyService extends Service {
     // No schema default: process.cwd() is resolved in the constructor so the
     // stored root is always absolute regardless of how it was supplied.
     workspaceRoot: z.string(),
+    deniedReadPaths: z.array(z.string()),
   })
 
   static inject = ['sessionProjections']
@@ -122,6 +125,7 @@ export class SandboxPolicyService extends Service {
   readonly defaultMode: SandboxMode
   /** The absolute `workspace-write` fallback root for calls without a session cwd. */
   readonly workspaceRoot: string
+  private readonly deniedReadPaths: readonly string[]
   constructor(ctx: Context, config: Config) {
     super(ctx, 'sandboxPolicy')
     // schemastery (static Config) already filled `mode`; the cast records that
@@ -129,6 +133,10 @@ export class SandboxPolicyService extends Service {
     // the process cwd is real branching, resolved absolute either way.
     this.defaultMode = config.mode as SandboxMode
     this.workspaceRoot = resolveWorkspaceRoot(config.workspaceRoot ?? process.cwd())
+    this.deniedReadPaths = (config.deniedReadPaths ?? []).map((path) => {
+      if (!isAbsolute(path)) throw new Error('sandbox-policy: denied read paths must be absolute host paths')
+      return path
+    })
 
     ctx.sessionProjections.register({
       key: 'sandboxMode',
@@ -166,6 +174,7 @@ export class SandboxPolicyService extends Service {
     return {
       mode: request.mode ?? (session === undefined ? undefined : this.overrideOf(session)) ?? this.defaultMode,
       workspaceRoot: resolveWorkspaceRoot(session?.header.cwd ?? this.workspaceRoot),
+      ...this.deniedReadPaths.length === 0 ? {} : { deniedReadPaths: this.deniedReadPaths },
       ...session === undefined ? {} : { sessionId: session.id },
     }
   }

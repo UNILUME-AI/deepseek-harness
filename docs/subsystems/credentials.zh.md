@@ -6,6 +6,8 @@
 
 来源：[`packages/credentials/credentials/src/index.ts`](../../packages/credentials/credentials/src/index.ts)
 
+本地凭据提供方通过 `agentDeniedReadPaths` 发布需对受限 agent 隐藏的绝对文件名；默认值为空。共享[读取排除函数](../../packages/sandbox/sandbox/README.zh.md#read-exclusions)供本地进程沙箱和 fs 围栏消费。
+
 ## 标识
 
 引用以 POSIX 风格环境变量名命名一条凭据。brand 防止调用方将凭据引用与在包或进程之间传递的其他字符串混用；构造时校验 shell 标识符语法。

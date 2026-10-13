@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.0-rc.2/credential-read-exclusions/guide.md
+/:
+  en: 60cf2e835d5d1111
+  zh: 86ab8c96dcca2c52
+/confined-credential-file-reads:
+  en: d6c1ae4d57b9bf18
+  zh: aa773834e91b7a20
+/confined-credential-file-reads/change:
+  en: b3dbcd7ef33ec1a5
+  zh: f4ea19013c4d9a7c
+/confined-credential-file-reads/migration:
+  en: 1fe8f1bf3d13a9b0
+  zh: 679ffd675b3de33d

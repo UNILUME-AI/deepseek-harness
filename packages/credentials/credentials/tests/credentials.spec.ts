@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { credentialRef, isCredentialKeySegment } from '../src/index.ts'
+import { credentialKey, credentialKeyId, credentialRef, isCredentialKeySegment } from '../src/index.ts'
 import type { CredentialRef } from '../src/index.ts'
 import { MemoryCredentials } from './memory.ts'
 
@@ -80,5 +80,18 @@ describe('the credentials seam through the memory provider', () => {
     expect(ctx.get('credentials')).toBeDefined()
     await fiber.dispose()
     expect(ctx.get('credentials')).toBeUndefined()
+  })
+})
+
+
+describe('credential file exclusions', () => {
+  it('defaults to no local files for a memory provider', async () => {
+    const ctx = await boot()
+    try {
+      expect(ctx.credentials.agentDeniedReadPaths).toEqual([])
+      expect(credentialKeyId(credentialKey('test', 'secret'))).toBe('secret')
+    } finally {
+      await ctx.fiber.dispose()
+    }
   })
 })
