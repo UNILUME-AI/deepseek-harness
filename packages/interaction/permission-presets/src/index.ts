@@ -421,19 +421,22 @@ export class PermissionPresetService extends TypertRemoteService {
    * Fill every missing permission fact before a session is published. A
    * genuinely fresh session uses the current user default; seeded or partially
    * initialized sessions preserve their effective knob values and only gain
-   * the missing durable facts. A stored Auto identity requires its live
-   * integration and passes its admission check before
-   * publication.
+   * the missing durable facts. A stored Auto identity passes its live
+   * integration's admission check before publication; without the
+   * integration it restores as `workspace-write` with `ask` approval.
    */
   private pinInitialPermission(session: Session): void {
     const state = this.permissionState(session)
     const { preset, sandbox, approval, seeded } = state
-    if (preset === AUTO_PRESET) {
-      if (this.autoAdmit === undefined) {
-        throw new Error('permission: cannot restore preset "auto" without its active integration')
-      }
-      this.autoAdmit()
+    if (preset === AUTO_PRESET && this.autoAdmit === undefined) {
+      this.ctx.logger.warn('permission: preset "auto" has no active integration; restoring the session as workspace-write with ask approval')
+      setSandboxMode(session, 'workspace-write')
+      setApprovalPolicy(session, 'ask')
+      const effective = this.derive(this.permissionState(session))
+      if (effective !== CUSTOM_PRESET) session.append('permission/preset', { preset: effective })
+      return
     }
+    if (preset === AUTO_PRESET) this.autoAdmit?.()
     if (preset === null && sandbox === null && approval === null && !seeded) {
       const name = this.defaultPreset
       const spec = this.resolve(name)
