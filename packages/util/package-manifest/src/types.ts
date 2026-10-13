@@ -34,6 +34,8 @@ export interface DshManifest {
   bundle?: DshBundleManifest
   /** Profile metadata consumed by the profile launcher. */
   profile?: DshProfileManifest
+  /** Bundle package names excluded by an installation or local pack; profile declarations do not apply. */
+  excludeBundles?: string[]
   /** Client module loading and build metadata. */
   client?: DshClientManifest
 }

@@ -1400,3 +1400,148 @@ it.each([false, true])('rechecks installed bundle peers before accepting a disab
   }
   expect(readProfileManifest('test', dir).dsh?.profile?.bundles).toEqual(['core', 'extra'])
 })
+
+it('hides excluded optional bundles and refuses direct activation and installation without changing profile files', async () => {
+  const { manager, profile, dir } = await fixture('startup')
+  const name = '@deepseek-ai/dsh-experimental-auto-review'
+  const packageDir = join(profile.home, 'node_modules', name)
+  mkdirSync(packageDir, { recursive: true })
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({ name, dsh: { bundle: { patch: './cordis.patch.yml' } } }))
+  writeFileSync(join(packageDir, 'cordis.patch.yml'), '[]\n')
+  writeFileSync(profile.installAnchor, JSON.stringify({ name: 'installation', dependencies: { [name]: '*' }, dsh: { excludeBundles: [name] } }))
+  const before = readFileSync(join(dir, 'package.json'), 'utf8')
+  expect((await manager.listBundles()).map(bundle => bundle.name)).not.toContain(name)
+  const refused = { changed: false, application: 'failed', error: { code: 'operation-error', diagnostic: `${name} is excluded by this installation's dsh.excludeBundles` } }
+  const activation = await manager.setBundleEnabled(name, true)
+  expect(activation).toMatchObject(refused)
+  await expect(JSON.stringify({
+    bundles: (await manager.listBundles()).map(bundle => bundle.name),
+    activation: { application: activation.application, changed: activation.changed, diagnostic: activation.error?.diagnostic },
+  }, undefined, 2) + '\n').toMatchFileSnapshot('expected/bundle-exclusion.json')
+  const pnpm = vi.spyOn(operations, 'runProfilePnpm')
+  onTestFinished(() => { pnpm.mockRestore() })
+  expect(await manager.installBundle(`${name}@1.0.0`, { enabled: false })).toMatchObject(refused)
+  expect(await manager.installBundle(packageDir)).toMatchObject(refused)
+  expect(pnpm).not.toHaveBeenCalled()
+  expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(before)
+})
+
+it('boots the manager while skipping a previously selected excluded bundle and permits unrelated changes', async () => {
+  const { ctx, manager, profile, dir } = await fixture('startup', false, undefined, {}, undefined, (dir) => {
+    writeFileSync(join(dir, '..', '..', 'package.json'), JSON.stringify({ name: 'installation', dsh: { excludeBundles: ['extra'] } }))
+  })
+  expect(ctx.get('managedProbe')).toBeUndefined()
+  expect(profile.startedBundles).toEqual(['core'])
+  expect((await manager.listBundles()).map(bundle => bundle.name)).toEqual(['core'])
+  expect(await manager.setBundleEnabled('extra', true)).toMatchObject({ application: 'failed', changed: false })
+  expect(await manager.setBundleEnabled('extra', false)).toMatchObject({ application: 'restart-required', changed: true })
+  expect(readProfileManifest('test', dir).dsh?.profile?.bundles).toEqual(['core'])
+  expect(ctx.get('pluginManager') !== undefined).toBe(true)
+})
+
+it('hides and refuses activation of an excluded bundle installed under an alias', async () => {
+  const { manager, profile, dir, bundle } = await fixture('startup')
+  bundle('alias', [])
+  const packagePath = join(dir, 'node_modules', 'alias', 'package.json')
+  const metadata = JSON.parse(readFileSync(packagePath, 'utf8')) as Record<string, unknown>
+  writeFileSync(packagePath, JSON.stringify({ ...metadata, name: 'blocked-addon' }))
+  const manifest = readProfileManifest('test', dir)
+  manifest.dependencies = { ...manifest.dependencies, alias: '1.0.0' }
+  writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
+  writeFileSync(profile.installAnchor, JSON.stringify({ name: 'installation', dsh: { excludeBundles: ['blocked-addon'] } }))
+  expect((await manager.listBundles()).map(bundle => bundle.name)).not.toContain('alias')
+  expect(await manager.setBundleEnabled('alias', true)).toMatchObject({
+    application: 'failed', changed: false,
+    error: { code: 'operation-error', diagnostic: "blocked-addon is excluded by this installation's dsh.excludeBundles" },
+  })
+})
+
+it('enables a bundle whose manifest omits its name when the dependency name is allowed', async () => {
+  const { manager, dir, bundle, profile } = await fixture('startup')
+  bundle('nameless-addon', [])
+  writeFileSync(join(dir, 'node_modules', 'nameless-addon', 'package.json'), JSON.stringify({ dsh: { bundle: { patch: './cordis.patch.yml' } } }))
+  writeFileSync(profile.installAnchor, JSON.stringify({ dsh: { excludeBundles: ['blocked-addon'] } }))
+  expect(await manager.setBundleEnabled('nameless-addon', true)).toMatchObject({ application: 'restart-required', changed: true })
+  expect(readProfileManifest('test', dir).dsh?.profile?.bundles).toEqual(['core', 'extra', 'nameless-addon'])
+})
+
+it('refuses excluded registry and local specs during inspection before registry lookup', async () => {
+  const { manager, profile } = await fixture('startup')
+  writeFileSync(profile.installAnchor, JSON.stringify({ dsh: { excludeBundles: ['blocked-addon'] } }))
+  const local = join(profile.home, 'local-addon')
+  mkdirSync(local)
+  writeFileSync(join(local, 'package.json'), JSON.stringify({ name: 'blocked-addon', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
+  const view = vi.spyOn(operations, 'viewProfilePackage')
+  onTestFinished(() => { view.mockRestore() })
+  for (const spec of ['blocked-addon@1.0.0', local]) {
+    expect(await manager.inspect(spec)).toEqual({
+      status: 'refused', problem: 'excluded', reason: "blocked-addon is excluded by this installation's dsh.excludeBundles",
+    })
+  }
+  expect(view).not.toHaveBeenCalled()
+})
+
+it('refuses a registry alias during inspection when the resolved name is excluded', async () => {
+  const { manager, profile } = await fixture('startup')
+  writeFileSync(profile.installAnchor, JSON.stringify({ dsh: { excludeBundles: ['blocked-addon'] } }))
+  const view = vi.spyOn(operations, 'viewProfilePackage').mockResolvedValue({
+    exitCode: 0, stdout: JSON.stringify({ name: 'blocked-addon', dsh: { bundle: { patch: './cordis.patch.yml' } } }), stderr: '', timedOut: false,
+  })
+  onTestFinished(() => { view.mockRestore() })
+  expect(await manager.inspect('alias@npm:blocked-addon@1.0.0')).toEqual({
+    status: 'refused', problem: 'excluded', reason: "blocked-addon is excluded by this installation's dsh.excludeBundles",
+    registries: [null],
+  })
+  expect(view).toHaveBeenCalledOnce()
+})
+
+it('preserves a relative-path installation failure without attributing it to a registry', async () => {
+  const { manager, dir } = await fixture('startup')
+  const before = readFileSync(join(dir, 'package.json'), 'utf8')
+  const pnpm = vi.spyOn(operations, 'runProfilePnpm').mockResolvedValue({
+    exitCode: 1, output: 'local installation failed', truncated: false, logPath: join(dir, 'pnpm.log'),
+  })
+  onTestFinished(() => { pnpm.mockRestore() })
+  const result = await manager.installBundle('./local-addon')
+  expect(result).toMatchObject({
+    application: 'failed', changed: false, error: { code: 'operation-error', diagnostic: 'local installation failed' },
+  })
+  expect(result.failedAt).toBeUndefined()
+  expect(pnpm).toHaveBeenCalledOnce()
+  expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(before)
+})
+
+it.each([
+  { named: true, enabled: true }, { named: false, enabled: true }, { named: true, enabled: false },
+])('reinstalls an existing excluded bundle from git with file recovery when activation is requested (named=$named, enabled=$enabled)', async ({ named, enabled }) => {
+  const { manager, dir } = await fixture('startup', false, undefined, {}, undefined, (dir) => {
+    writeFileSync(join(dir, '..', '..', 'package.json'), JSON.stringify({ dsh: { excludeBundles: ['extra'] } }))
+  })
+  const manifestPath = join(dir, 'package.json')
+  const lockPath = join(dir, 'pnpm-lock.yaml')
+  writeFileSync(lockPath, 'saved lockfile\n')
+  const before = readFileSync(manifestPath, 'utf8')
+  const install = vi.spyOn(operations, 'runProfilePnpm').mockImplementation(async () => {
+    const profile = readProfileManifest('test', dir)
+    profile.dependencies = { extra: 'github:example/addon#next' }
+    writeFileSync(manifestPath, JSON.stringify(profile))
+    writeFileSync(lockPath, 'updated lockfile\n')
+    writeFileSync(join(dir, 'node_modules', 'extra', 'package.json'), JSON.stringify({
+      ...named ? { name: 'extra' } : {}, version: '2.0.0', dsh: { bundle: { patch: './cordis.patch.yml' } },
+    }))
+    return { exitCode: 0, output: 'installed', truncated: false, logPath: join(dir, 'pnpm.log') }
+  })
+  onTestFinished(() => { install.mockRestore() })
+  const result = await manager.installBundle('github:example/addon', enabled ? undefined : { enabled: false })
+  expect(install).toHaveBeenCalledOnce()
+  if (enabled) {
+    expect(result).toMatchObject({ application: 'failed', changed: false })
+    expect(result.error?.diagnostic).toContain("extra is excluded by this installation's dsh.excludeBundles")
+    expect(readFileSync(manifestPath, 'utf8')).toBe(before)
+    expect(readFileSync(lockPath, 'utf8')).toBe('saved lockfile\n')
+  } else {
+    expect(result).toMatchObject({ application: 'restart-required', changed: true })
+    expect(readProfileManifest('test', dir).dependencies).toEqual({ extra: 'github:example/addon#next' })
+    expect(readFileSync(lockPath, 'utf8')).toBe('updated lockfile\n')
+  }
+})

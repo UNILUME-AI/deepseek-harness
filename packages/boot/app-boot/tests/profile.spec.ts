@@ -23,6 +23,7 @@ import {
   PROFILE_PATCH_FILENAME,
   PROFILE_TEMPLATES,
   readProfileManifest,
+  readExcludedBundles,
   readProfilePatches,
   removeLinkProjections,
   reportSkippedBundles,
@@ -792,5 +793,100 @@ describe('removeLinkProjections', () => {
     removeLinkProjections(profile)
     removeLinkProjections(join(home, 'profiles', 'absent'))
     expect(existsSync(join(profile, 'node_modules', 'my-plugin', 'package.json'))).toBe(true)
+  })
+})
+
+describe('installation bundle exclusions', () => {
+  it('loads profile layers without exclusions when the installation manifest is absent', () => {
+    const anchor = stageInstallation({ addon: { patch: '[{"insert":[{"id":"addon","name":"cordis:group"}]}]\n' } })
+    rmSync(anchor)
+    const dir = join(tmp(), 'profile')
+    initProfile(dir, ['addon'])
+    const profile = loadProfileDirectory('test', dir, anchor)
+    expect(readExcludedBundles(anchor).size).toBe(0)
+    expect(profile.skippedBundles).toEqual([])
+    expect(composeEntries(profile.layers.map(layer => layer.patches)).map(row => row.id)).toEqual(['addon'])
+  })
+
+  it('propagates installation manifest read errors other than ENOENT', () => {
+    const anchor = join(tmp(), 'package.json')
+    mkdirSync(anchor)
+    expect(() => readExcludedBundles(anchor)).toThrow(expect.objectContaining({ code: 'EISDIR' }))
+  })
+
+  it('skips a persisted excluded layer, retains other layers, and reports its reason once', () => {
+    const anchor = stageInstallation({
+      'excluded-addon': { patch: '[{"insert":[{"id":"excluded","name":"cordis:group"}]}]\n' },
+      'kept-addon': { patch: '[{"insert":[{"id":"kept","name":"cordis:group"}]}]\n' },
+    })
+    const installation = readProfileManifest('test', dirname(anchor))
+    installation.dsh = { excludeBundles: ['excluded-addon'] }
+    writeProfileManifest(dirname(anchor), installation)
+    const home = tmp()
+    initProfile(resolveProfileDir('test', home), ['excluded-addon', 'kept-addon'])
+    const profile = loadProfile('test', 'test', anchor, home)
+    expect(composeEntries(profile.layers.map(layer => layer.patches)).map(row => row.id)).toEqual(['kept'])
+    expect(profile.skippedBundles).toEqual([{ packageName: 'excluded-addon', reason: "Error: excluded-addon is excluded by this installation's dsh.excludeBundles" }])
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+    onTestFinished(() => { stderr.mockRestore() })
+    reportSkippedBundles('test', profile)
+    expect(stderr).toHaveBeenCalledOnce()
+    expect(stderr).toHaveBeenCalledWith(expect.stringContaining('dsh.excludeBundles'))
+    expect(readProfileManifest('test', profile.dir).dsh?.profile?.bundles).toEqual(['excluded-addon', 'kept-addon'])
+  })
+
+  it.each(['source', 'runtime'] as const)('unions installation and %s local pack declarations', (kind) => {
+    const root = tmp()
+    const app = kind === 'source' ? join(root, 'apps', 'cli') : join(root, 'node_modules', 'dsh')
+    mkdirSync(app, { recursive: true })
+    if (kind === 'source') writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages: []\n')
+    else writeFileSync(join(root, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh-desktop-runtime' }))
+    const pack = kind === 'source' ? join(root, 'local-packs', 'assembly') : join(root, 'node_modules', 'assembly')
+    mkdirSync(pack, { recursive: true })
+    writeFileSync(join(pack, 'package.json'), JSON.stringify({ name: 'assembly', dsh: { excludeBundles: ['local-addon', 'shared-addon'] } }))
+    const anchor = join(app, 'package.json')
+    writeFileSync(anchor, JSON.stringify({ name: 'dsh', dsh: { excludeBundles: ['installation-addon', 'shared-addon'] } }))
+    if (kind === 'runtime') {
+      mkdirSync(join(root, 'local-packs'))
+      writeFileSync(join(root, 'local-packs', '.packages.json'), '["assembly"]\n')
+    }
+    expect([...readExcludedBundles(anchor)]).toEqual(['installation-addon', 'shared-addon', 'local-addon'])
+  })
+
+  it.each([null, 'addon', [1], ['addon@1'], ['@scope/addon/subpath'], [''], [' add-on']])('rejects invalid declarations %j before reading bundle layers', (excludeBundles) => {
+    const anchor = stageInstallation({})
+    writeFileSync(anchor, JSON.stringify({ dsh: { excludeBundles } }))
+    const dir = join(tmp(), 'profile')
+    initProfile(dir, [])
+    expect(() => loadProfileDirectory('test', dir, anchor)).toThrow('dsh.excludeBundles must be an array of exact package names')
+  })
+
+  it('keeps the previous composition when no exclusion is declared and ignores profile-owned exclusions', () => {
+    const anchor = stageInstallation({ addon: { patch: '[{"insert":[{"id":"addon","name":"cordis:group"}]}]\n' } })
+    const dir = join(tmp(), 'profile')
+    initProfile(dir, ['addon'])
+    const manifest = readProfileManifest('test', dir)
+    manifest.dsh = { ...manifest.dsh, excludeBundles: ['addon'] }
+    writeProfileManifest(dir, manifest)
+    const profile = loadProfileDirectory('test', dir, anchor)
+    expect(readExcludedBundles(anchor).size).toBe(0)
+    expect(profile.skippedBundles).toEqual([])
+    expect(composeEntries(profile.layers.map(layer => layer.patches)).map(row => row.id)).toEqual(['addon'])
+  })
+
+  it('skips an excluded bundle installed under an alias before loading its patch', () => {
+    const anchor = stageInstallation({ alias: { patch: '[{"insert":[{"id":"alias","name":"cordis:group"}]}]\n' } })
+    const installation = readProfileManifest('test', dirname(anchor))
+    installation.dsh = { excludeBundles: ['blocked-addon'] }
+    writeProfileManifest(dirname(anchor), installation)
+    const packageDir = join(dirname(anchor), 'node_modules', 'alias')
+    const bundle = readProfileManifest('test', packageDir)
+    bundle.name = 'blocked-addon'
+    writeProfileManifest(packageDir, bundle)
+    const dir = join(tmp(), 'profile')
+    initProfile(dir, ['alias'])
+    const profile = loadProfileDirectory('test', dir, anchor)
+    expect(profile.layers).toEqual([])
+    expect(profile.skippedBundles).toEqual([{ packageName: 'alias', reason: "Error: blocked-addon is excluded by this installation's dsh.excludeBundles" }])
   })
 })

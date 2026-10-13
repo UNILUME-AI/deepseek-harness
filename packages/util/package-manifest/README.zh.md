@@ -50,7 +50,10 @@ const manifest: DshPackageManifest = {
 | 字段 | 含义 |
 |---|---|
 | `dsh.manifestVersion` | manifest（元数据清单）格式标识；声明的格式为 `1`，独立于 npm 包版本和 Session 格式版本。 |
+| `dsh.excludeBundles` | 安装或本地包排除的精确组合包名；[App boot](../../boot/app-boot/README.zh.md#installation-bundle-exclusions) 负责校验和执行。 |
 | `engines.dsh` | 作者声明的兼容 DSH 版本，使用 SemVer 范围，也可填写精确的预发布版本。此字段与 `engines.node`、`engines.npm` 并列；engines 对象可省略 `dsh`。 |
+
+被排除的组合包保留选择，但从管理界面隐藏；移除历史选择的方法见[选择清理说明](../../boot/plugin-manager/README.zh.md#installation-bundle-exclusions)。
 
 `LocalizedText` 携带字面文本或带必需英文回退值的语言映射。`PluginLocalizedMeta` 携带已安装插件的可选展示标题、描述、从 `package.json.icon` 解析的图片 data URL，以及元信息诊断。[App boot](../../boot/app-boot/README.zh.md) 读取这些值；本包只提供其类型。
 

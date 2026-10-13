@@ -1,0 +1,11 @@
+{
+  "bundles": [
+    "core",
+    "extra"
+  ],
+  "activation": {
+    "application": "failed",
+    "changed": false,
+    "diagnostic": "@deepseek-ai/dsh-experimental-auto-review is excluded by this installation's dsh.excludeBundles"
+  }
+}

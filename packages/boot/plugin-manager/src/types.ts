@@ -160,6 +160,7 @@ export type InstallSpecKind = 'registry' | 'path' | 'git' | 'tarball'
 /** Why a spec was refused before anything installed. */
 export type PluginInspectProblem =
   | 'invalid-spec'
+  | 'excluded'
   | 'already-installed'
   | 'not-found'
   | 'not-a-package'

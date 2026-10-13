@@ -70,6 +70,21 @@ profile 导入插件前，DSH 会检查其 `peerDependencies` 中对 `@deepseek-
 
 `sanitizeProfile(binName, profileDir, bundles)` 提供文件恢复，无需加载插件或解析 patch。Desktop 在原生致命错误恢复中调用它。调用前必须停止 profile 并排除并发 profile 写入。它将 profile 的 `cordis.patch.yml` 重命名为带唯一 `.bak-<timestamp>` 后缀的同目录备份，并恢复调用方指定的 bundle 列表，保留已安装包和其他 manifest 字段。时间戳为 Unix 毫秒数；同名备份已存在时追加序号（`-1`、`-2`、……），时间戳保持不变。返回值为备份路径；patch 不存在时返回 `undefined`，缺失的 profile 不会被创建。下次启动的 profile 初始化会重新创建空 patch。home 级 patch 不变。无效 profile JSON 在修改前报错；后续错误向调用方抛出，保留已完成的修改供重试。
 
+<a id="installation-bundle-exclusions"></a>
+### 安装级组合包排除
+
+在当前安装的 `package.json` 或任一已发现本地包的 `package.json` 中设置 `dsh.excludeBundles`。这些 manifest 的声明取并集，作用于该安装的所有 profile；profile 自己的声明被忽略。每个值必须是精确的 npm 包名，不带版本、模块子路径或匹配模式。安装 manifest 缺失、未声明或空数组不排除任何包；其他 manifest 读取错误和无效声明会在加载组合包前报错。
+
+```json
+{
+  "dsh": {
+    "excludeBundles": ["@deepseek-ai/dsh-experimental-auto-review"]
+  }
+}
+```
+
+`readExcludedBundles` 在 `loadProfileDirectory` 解析已选组合包前读取此策略。被排除的组合包不贡献补丁层，其持久化选择和依赖文件保持不变，并列入 `skippedBundles`；`reportSkippedBundles` 每次启动输出一次排除原因。其他组合包保持原有顺序。策略也作用于 profile 重新组合。[插件管理器](../plugin-manager/README.zh.md) 隐藏被排除的组合包，并拒绝启用和安装。Desktop 打包保留本地包 manifest，因此声明无需单独的策略文件即可随打包保留。排除规则管理组合包选择，不限制任意插件导入或手动插入的行；排除必需组合包可能导致必需服务不可用。之前已选的被排除组合包也会隐藏，无法从界面取消选择；清理方法见[选择清理说明](../plugin-manager/README.zh.md#installation-bundle-exclusions)。
+
 ### 预览生效配置
 
 启动前，你可以打印应用将挂载的确切配置：dump 会以 `!!js` 表达式原样展示组合后的条目列表，并按注释分组标明每个源文件及其 patch 层，输出是一份可加载的 YAML 文档。未匹配到任何行的 patch 会连同其层标签一起报告；配置缺失、无法解析或字段无效都会使 dump 失败。

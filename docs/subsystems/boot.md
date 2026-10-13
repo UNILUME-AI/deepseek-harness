@@ -149,6 +149,7 @@ Manage profile files and apply their declared reload lifecycle.
  * only network failures or timeouts stop installation, while pnpm owns authentication and transport fallback. A run
  * that fails, is cancelled, or adds a package without a bundle patch restores
  * `package.json` and `pnpm-lock.yaml` as they were; downloaded files can stay.
+ * Requesting activation of an excluded installed bundle also restores these files, including for an existing dependency.
  * @param spec One package spec, including local paths relative to the invocation directory.
  * @param options Whether to activate the installed bundle (defaults to true), the request id a cancellation names,
  * the pending build scripts to allow for this profile before pnpm runs, and the registry asked first.

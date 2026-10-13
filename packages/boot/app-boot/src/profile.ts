@@ -106,7 +106,7 @@ export interface Profile {
 export interface SkippedBundle {
   /** The bundle's package name from `dsh.profile.bundles`. */
   packageName: string
-  /** The resolution, manifest, compatibility, or patch-loading failure. */
+  /** The resolution, manifest, compatibility, exclusion, or patch-loading failure. */
   reason: string
 }
 
@@ -441,6 +441,47 @@ function localPackPackages(location: LocalPacksLocation | undefined, installAnch
     packs.push({ name: manifest.name, packageDir, manifestPath, manifest })
   }
   return packs
+}
+
+/**
+ * Read installation-owned bundle exclusions, unioned with every local pack's declaration.
+ * Profile manifests cannot override these declarations. An absent installation manifest or field excludes nothing.
+ * @param installAnchor - absolute package.json path of the running installation.
+ * @returns excluded exact package names, without version ranges or module subpaths.
+ * @throws when reading fails other than ENOENT, a declaration is invalid, or local pack metadata is invalid.
+ */
+export function readExcludedBundles(installAnchor: string): ReadonlySet<string> {
+  let installation: ProfileManifest = {}
+  try {
+    installation = readPackageManifest(installAnchor)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  const manifests = [
+    { manifestPath: installAnchor, manifest: installation },
+    ...localPackPackages(locateLocalPacks(installAnchor), installAnchor),
+  ]
+  const excluded = new Set<string>()
+  for (const { manifestPath, manifest } of manifests) {
+    const names = manifest.dsh?.excludeBundles
+    if (names === undefined) continue
+    if (!Array.isArray(names) || names.some(name => typeof name !== 'string'
+      || name.length > 214 || !/^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/.test(name))) {
+      throw new Error(`dsh: ${manifestPath}: dsh.excludeBundles must be an array of exact package names`)
+    }
+    for (const name of names) excluded.add(name)
+  }
+  return excluded
+}
+
+/**
+ * Describe an installation's refusal of a bundle package.
+ * @param name - exact bundle package name.
+ * @param excluded - installation-owned exclusions returned by readExcludedBundles.
+ * @returns a diagnostic when excluded, otherwise undefined.
+ */
+export function bundleExclusionReason(name: string, excluded: ReadonlySet<string>): string | undefined {
+  return excluded.has(name) ? `${name} is excluded by this installation's dsh.excludeBundles` : undefined
 }
 
 /** The optional patch filename owned by each shipped bundle that accepts a local overlay. */
@@ -794,11 +835,16 @@ export function loadProfileDirectory(
   const layers: ProfileLayer[] = []
   const skippedBundles: SkippedBundle[] = []
   const localPacks = locateLocalPacks(installAnchor)
+  const excluded = readExcludedBundles(installAnchor)
   const exemptions = bundles.length === 0 ? {} : readProfileVersionExemptions(dir)
   for (const packageName of bundles) {
     try {
+      const exclusion = bundleExclusionReason(packageName, excluded)
+      if (exclusion !== undefined) throw new Error(exclusion)
       const packageDir = resolveBundleDir(binName, packageName, installAnchor, dir)
       const bundleManifest = readProfileManifest(binName, packageDir)
+      const manifestExclusion = bundleExclusionReason(bundleManifest.name ?? packageName, excluded)
+      if (manifestExclusion !== undefined) throw new Error(manifestExclusion)
       const bundle = bundleManifest.dsh?.bundle
       if (bundle === undefined) {
         throw new Error(`${binName}: profile bundle ${JSON.stringify(packageName)} declares no dsh.bundle in its package.json`)

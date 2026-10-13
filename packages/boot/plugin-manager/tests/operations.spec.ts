@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { PassThrough } from 'node:stream'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { getDshRuntimeVersion, initProfile, readProfileManifest } from '@deepseek-ai/dsh-app-boot'
-import { anchorPathSpec, readProfileRegistry, runPluginCommand, runProfilePnpm, viewProfilePackage } from '../src/operations.ts'
+import { installSpecExclusion, anchorPathSpec, readProfileRegistry, runPluginCommand, runProfilePnpm, viewProfilePackage } from '../src/operations.ts'
 
 /** What execa resolves for a run that settled, including the buffered output the pre-install lookup is read for. */
 interface FakeOutcome {
@@ -958,4 +958,167 @@ it('uses application-owned executable arguments and environment for package oper
   expect(command.run).toHaveBeenLastCalledWith(runtime.command,
     [...runtime.args, 'view', 'example', 'name', 'version', 'description', 'dsh', '--json', '--config.fetch-retries=0'],
     expect.objectContaining({ env: expect.objectContaining(runtime.env) as unknown }))
+})
+
+it.each(['blocked-addon@1.0.0', 'local'])('refuses an excluded %s install before pnpm starts', async (spec) => {
+  const { context, dir, home } = fixture()
+  writeFileSync(context.installAnchor, JSON.stringify({ dsh: { excludeBundles: ['blocked-addon'] } }))
+  const local = join(home, 'local-addon')
+  mkdirSync(local)
+  writeFileSync(join(local, 'package.json'), JSON.stringify({ name: 'blocked-addon' }))
+  const before = readFileSync(join(dir, 'package.json'), 'utf8')
+  const result = await runPluginCommand(context, ['add', spec === 'local' ? local : spec], { execution: 'service', outputBytes: 16384 })
+  expect(result.exitCode).toBe(1)
+  expect(result.output).toContain("blocked-addon is excluded by this installation's dsh.excludeBundles")
+  expect(result.incompatible).toBeUndefined()
+  expect(command.run).not.toHaveBeenCalled()
+  expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(before)
+})
+
+it('rejects an excluded package discovered after a git install and restores profile files', async () => {
+  const { context, dir, pnpm } = fixture()
+  writeFileSync(context.installAnchor, JSON.stringify({ dsh: { excludeBundles: ['blocked-addon'] } }))
+  const before = readFileSync(join(dir, 'package.json'), 'utf8')
+  pnpm.mutate = (dir) => {
+    const packageDir = join(dir, 'node_modules', 'blocked-addon')
+    mkdirSync(packageDir, { recursive: true })
+    writeFileSync(join(packageDir, 'package.json'), JSON.stringify({ name: 'blocked-addon', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
+    writeFileSync(join(packageDir, 'cordis.patch.yml'), '[]\n')
+    const manifest = readProfileManifest('test', dir)
+    manifest.dependencies = { 'blocked-addon': '1.0.0' }
+    writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
+  }
+  const result = await runProfilePnpm(context, ['add', 'github:example/addon'], { execution: 'service', outputBytes: 16384 })
+  expect(result.exitCode).toBe(1)
+  expect(result.output).toContain('blocked-addon is excluded')
+  expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(before)
+  expect(command.run).toHaveBeenCalledTimes(2)
+})
+
+it('rejects a registry alias whose resolved manifest names an excluded package', async () => {
+  const { context, pnpm } = fixture()
+  writeFileSync(context.installAnchor, JSON.stringify({ dsh: { excludeBundles: ['blocked-addon'] } }))
+  pnpm.view = () => ({ exitCode: 0, stdout: JSON.stringify({ name: 'blocked-addon' }) })
+  const result = await runProfilePnpm(context, ['add', 'alias@npm:blocked-addon@1.0.0'], { execution: 'service', outputBytes: 16384 })
+  expect(result.exitCode).toBe(1)
+  expect(result.output).toContain('blocked-addon is excluded')
+  expect(command.run).toHaveBeenCalledOnce()
+  expect(pnpm.views).toEqual(['alias@npm:blocked-addon@1.0.0'])
+})
+
+it('leaves unidentifiable and unrelated specs to the existing installer', () => {
+  const { home } = fixture()
+  const excluded = new Set(['blocked-addon'])
+  const nameless = join(home, 'nameless')
+  mkdirSync(nameless)
+  writeFileSync(join(nameless, 'package.json'), '{}\n')
+  for (const spec of ['kept-addon', 'github:example/addon', 'https://example.org/addon.tgz', './addon', join(home, 'missing'), nameless]) {
+    expect(installSpecExclusion(spec, excluded)).toBeUndefined()
+  }
+  expect(installSpecExclusion('blocked-addon', new Set())).toBeUndefined()
+})
+
+it('retains an untouched excluded dependency during an unrelated package operation', async () => {
+  const { context, dir } = fixture()
+  writeFileSync(context.installAnchor, JSON.stringify({ dsh: { excludeBundles: ['blocked-addon'] } }))
+  const packageDir = join(dir, 'node_modules', 'blocked-addon')
+  mkdirSync(packageDir, { recursive: true })
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({ name: 'blocked-addon', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
+  writeFileSync(join(packageDir, 'cordis.patch.yml'), '[]\n')
+  const manifest = readProfileManifest('test', dir)
+  manifest.dependencies = { 'blocked-addon': '1.0.0' }
+  manifest.dsh = { profile: { bundles: ['blocked-addon'] } }
+  writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
+  const output = vi.fn()
+  const result = await runProfilePnpm(context, ['install'], { execution: 'service', outputBytes: 16384, onOutput: output })
+  expect(result.exitCode).toBe(0)
+  expect(readProfileManifest('test', dir).dsh?.profile?.bundles).toEqual(['blocked-addon'])
+  expect(output).toHaveBeenCalledWith(expect.stringContaining('this installation excludes its bundle layer'), 'stderr')
+  expect(output.mock.calls.map(call => String(call[0])).join('')).not.toContain('grant an exemption')
+})
+
+it('upgrades an existing excluded bundle with a warning and retains its selection', async () => {
+  const { context, dir, pnpm } = fixture()
+  writeFileSync(context.installAnchor, JSON.stringify({ dsh: { excludeBundles: ['blocked-addon'] } }))
+  const packageDir = join(dir, 'node_modules', 'blocked-addon')
+  mkdirSync(packageDir, { recursive: true })
+  const metadata = { name: 'blocked-addon', dsh: { bundle: { patch: './cordis.patch.yml' } } }
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({ ...metadata, version: '1.0.0' }))
+  writeFileSync(join(packageDir, 'cordis.patch.yml'), '[]\n')
+  const manifest = readProfileManifest('test', dir)
+  manifest.dependencies = { 'blocked-addon': '1.0.0' }
+  manifest.dsh = { profile: { bundles: ['blocked-addon'] } }
+  writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
+  pnpm.mutate = (target) => {
+    const updated = readProfileManifest('test', target)
+    updated.dependencies = { 'blocked-addon': '2.0.0' }
+    writeFileSync(join(target, 'package.json'), JSON.stringify(updated))
+    writeFileSync(join(packageDir, 'package.json'), JSON.stringify({ ...metadata, version: '2.0.0' }))
+  }
+  const output = vi.fn()
+  const result = await runProfilePnpm(context, ['update', 'blocked-addon'], { execution: 'service', outputBytes: 16384, onOutput: output })
+  expect(result.exitCode).toBe(0)
+  expect(readProfileManifest('test', dir).dependencies).toEqual({ 'blocked-addon': '2.0.0' })
+  expect(readProfileManifest('test', dir).dsh?.profile?.bundles).toEqual(['blocked-addon'])
+  expect(JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'))).toMatchObject({ version: '2.0.0' })
+  expect(command.run).toHaveBeenCalledOnce()
+  expect(output.mock.calls.filter(call => String(call[0]).includes('this installation excludes its bundle layer'))).toHaveLength(1)
+  expect(output.mock.calls.map(call => String(call[0])).join('')).not.toContain('installation rejected')
+})
+
+it.each([
+  { bundle: false, named: true }, { bundle: false, named: false }, { bundle: true, named: false },
+])('checks a new dependency for bundle exclusions only when it declares a bundle (bundle=$bundle, named=$named)', async ({ bundle, named }) => {
+  const { context, dir, pnpm } = fixture()
+  writeFileSync(context.installAnchor, JSON.stringify({ dsh: { excludeBundles: ['blocked-addon'] } }))
+  const before = readFileSync(join(dir, 'package.json'), 'utf8')
+  pnpm.mutate = (target) => {
+    const packageDir = join(target, 'node_modules', 'blocked-addon')
+    mkdirSync(packageDir, { recursive: true })
+    writeFileSync(join(packageDir, 'package.json'), JSON.stringify({
+      version: '1.0.0', ...named ? { name: 'blocked-addon' } : {},
+      ...bundle ? { dsh: { bundle: { patch: './cordis.patch.yml' } } } : {},
+    }))
+    writeFileSync(join(packageDir, 'cordis.patch.yml'), '[]\n')
+    const manifest = readProfileManifest('test', target)
+    manifest.dependencies = { 'blocked-addon': '1.0.0' }
+    writeFileSync(join(target, 'package.json'), JSON.stringify(manifest))
+  }
+  const result = await runProfilePnpm(context, ['add', 'github:example/addon'], { execution: 'service', outputBytes: 16384 })
+  expect(result.exitCode).toBe(bundle ? 1 : 0)
+  if (bundle) {
+    expect(result.output).toContain('blocked-addon is excluded')
+    expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(before)
+    expect(command.run).toHaveBeenCalledTimes(2)
+  } else {
+    expect(readProfileManifest('test', dir).dependencies).toEqual({ 'blocked-addon': '1.0.0' })
+    expect(readProfileManifest('test', dir).dsh?.profile?.bundles).toEqual([])
+    expect(command.run).toHaveBeenCalledOnce()
+  }
+})
+
+it('rejects a newly installed excluded constructor bundle despite the dependency object prototype', async () => {
+  const { context, dir, pnpm } = fixture()
+  writeFileSync(context.installAnchor, JSON.stringify({ dsh: { excludeBundles: ['constructor'] } }))
+  const before = readFileSync(join(dir, 'package.json'), 'utf8')
+  const lockPath = join(dir, 'pnpm-lock.yaml')
+  writeFileSync(lockPath, 'saved lockfile\n')
+  pnpm.mutate = (target) => {
+    const packageDir = join(target, 'node_modules', 'constructor')
+    mkdirSync(packageDir, { recursive: true })
+    writeFileSync(join(packageDir, 'package.json'), JSON.stringify({ name: 'constructor', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
+    writeFileSync(join(packageDir, 'cordis.patch.yml'), '[]\n')
+    const manifest = readProfileManifest('test', target)
+    manifest.dependencies = { constructor: '1.0.0' }
+    writeFileSync(join(target, 'package.json'), JSON.stringify(manifest))
+    writeFileSync(lockPath, 'updated lockfile\n')
+  }
+  const output = vi.fn()
+  const result = await runProfilePnpm(context, ['add', 'github:example/addon'], { execution: 'service', outputBytes: 16384, onOutput: output })
+  expect(result.exitCode).toBe(1)
+  expect(result.output).toContain('constructor is excluded')
+  expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(before)
+  expect(readFileSync(lockPath, 'utf8')).toBe('saved lockfile\n')
+  expect(output.mock.calls.map(call => String(call[0])).join('')).not.toContain('it stays installed')
+  expect(command.run).toHaveBeenCalledTimes(2)
 })

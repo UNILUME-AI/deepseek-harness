@@ -652,6 +652,7 @@ function terminalLabels(t: Translate): TerminalBlockLabels {
 /** The sentence under the field for a spec the check refused. */
 const INPUT_PROBLEM_KEYS = {
   'invalid-spec': 'installProblemInvalid',
+  'excluded': 'installProblemExcluded',
   'already-installed': 'installProblemInstalled',
   'shipped': 'installProblemShipped',
   'not-found': 'installProblemNotFound',

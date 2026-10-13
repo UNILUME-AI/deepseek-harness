@@ -50,7 +50,10 @@ The following metadata fields are optional. Omitting them leaves the format vers
 | Field | Meaning |
 |---|---|
 | `dsh.manifestVersion` | Manifest format identifier; the declared format is `1`, independent of the npm package version and Session format version. |
+| `dsh.excludeBundles` | Exact bundle package names excluded by an installation or local pack; [App boot](../../boot/app-boot/README.md#installation-bundle-exclusions) owns validation and enforcement. |
 | `engines.dsh` | Author-declared compatible DSH versions as a SemVer range, including exact prerelease versions. This field sits beside `engines.node` and `engines.npm`; an engines object may omit `dsh`. |
+
+Excluded bundles remain selected but disappear from the management UI; follow the [selection cleanup instructions](../../boot/plugin-manager/README.md#installation-bundle-exclusions) to remove a historical selection.
 
 `LocalizedText` carries literal text or a language map with a required English fallback. `PluginLocalizedMeta` carries optional display title, description, an image data URL resolved from `package.json.icon`, and metadata diagnostics for installed plugins. [App boot](../../boot/app-boot/README.md) reads these values; this package only supplies their types.
 

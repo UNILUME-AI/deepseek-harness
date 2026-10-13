@@ -7,12 +7,13 @@ import { execa } from 'execa'
 import type { EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import {
-  DEFAULT_PROFILE_BUNDLES, bundlePatchPaths, initProfile, PROFILE_TEMPLATES, readProfileManifest,
+  readExcludedBundles, bundleExclusionReason, DEFAULT_PROFILE_BUNDLES, bundlePatchPaths, initProfile,
+  PROFILE_TEMPLATES, readProfileManifest,
   resolveBundleDir, resolveProfileDir, loadOverlayPatches, composeEntries, readProfileVersionExemptions,
   evaluatePluginCompatibility, pluginCompatibilityWarning, type ProfileManifest,
 } from '@deepseek-ai/dsh-app-boot'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
-import { parseInstallSpec } from './install-spec.ts'
+import { InvalidInstallSpecError, parseInstallSpec } from './install-spec.ts'
 import { awaitTreeGone, leadsOwnGroup, treeAlive, type RunTree } from './run-tree.ts'
 import { incompatiblePlugin } from './failure.ts'
 import type { IncompatiblePlugin, PackageResult, Registry } from './types.ts'
@@ -153,6 +154,28 @@ function namedSpecs(args: readonly string[]): string[] {
   return args.slice(index + 1).filter(argument => !argument.startsWith('-'))
 }
 
+/**
+ * Check a package spec whose name can be determined without fetching it.
+ * @param spec - absolute local path or registry install spec.
+ * @param excluded - installation-owned excluded bundle names.
+ * @returns the exclusion diagnostic, or undefined when allowed or not yet identifiable.
+ */
+export function installSpecExclusion(spec: string, excluded: ReadonlySet<string>): string | undefined {
+  if (excluded.size === 0) return undefined
+  let parsed
+  try { parsed = parseInstallSpec(spec) } catch (error) {
+    /* v8 ignore next 2 -- parseInstallSpec throws nothing but its own refusal */
+    if (!(error instanceof InvalidInstallSpecError)) throw error
+    return undefined
+  }
+  if (parsed.kind === 'registry') return bundleExclusionReason(parsed.name, excluded)
+  if (parsed.kind !== 'path') return undefined
+  const filename = join(parsed.path, 'package.json')
+  if (!existsSync(filename)) return undefined
+  const manifest = readProfileManifest('dsh', parsed.path)
+  return manifest.name === undefined ? undefined : bundleExclusionReason(manifest.name, excluded)
+}
+
 /** The manifest a named spec would install, read without installing it.
  * A path spec is read from disk. A registry spec asks pnpm's own configuration for the version the
  * range selects and its peer requirements. A git or tarball spec needs the fetch itself, so the
@@ -285,6 +308,7 @@ export async function runProfilePnpm(
   context: PackageOperationContext, args: readonly string[], options: PackageOperationOptions,
 ): Promise<PackageResult> {
   const dir = context.dir ?? resolveProfileDir(context.profile, context.home)
+  const excluded = readExcludedBundles(context.installAnchor)
   // Before any profile file is read: a recorded run that is still active may be rewriting them.
   const active = await activeRecordedRun(dir)
   const logRoot = join(dir, '.plugin-manager', 'logs')
@@ -327,7 +351,7 @@ export async function runProfilePnpm(
     options.onOutput?.(diagnostic, 'stderr')
     append(Buffer.from(diagnostic))
     await log.close()
-    return { exitCode: 1, output: output.toString('utf8'), truncated, logPath, incompatible }
+    return { exitCode: 1, output: output.toString('utf8'), truncated, logPath, ...incompatible.length === 0 ? {} : { incompatible } }
   }
   // An install command names the packages it adds, so their manifests are read and checked before
   // pnpm runs: an incompatible version is never installed, and the one already in use keeps working.
@@ -339,8 +363,16 @@ export async function runProfilePnpm(
     // A spec whose manifest cannot be read or validated is left to the run itself and to the check
     // after installation, which reports what it could not validate.
     try {
-      const manifest = await namedSpecManifest(dir, anchorPathSpec(raw, context.cwd), options, environment, registryFlags)
+      const spec = anchorPathSpec(raw, context.cwd)
+      const exclusion = installSpecExclusion(spec, excluded)
+      if (exclusion !== undefined) { preflight.push(exclusion); continue }
+      const manifest = await namedSpecManifest(dir, spec, options, environment, registryFlags)
       if (manifest === undefined) continue
+      const name = (manifest as { name?: unknown }).name
+      if (typeof name === 'string') {
+        const exclusion = bundleExclusionReason(name, excluded)
+        if (exclusion !== undefined) { preflight.push(exclusion); continue }
+      }
       const issue = evaluatePluginCompatibility(manifest, exemptions)
       if (issue !== undefined && !issue.exempted) {
         preflight.push(pluginCompatibilityWarning(issue))
@@ -473,8 +505,13 @@ export async function runProfilePnpm(
         const untouched = beforeDependencies[name] === spec && installedBefore.get(name) === installed
         const found: string[] = []
         const issues: IncompatiblePlugin[] = []
+        let exclusion: string | undefined
         try {
           const manifest = readProfileManifest('dsh', packageDir)
+          if (manifest.dsh?.bundle !== undefined) {
+            exclusion = bundleExclusionReason(manifest.name ?? name, excluded)
+            if (exclusion !== undefined && !Object.hasOwn(beforeDependencies, name)) found.push(exclusion)
+          }
           for (const candidate of [manifest, ...bundleComponentManifests(manifest, packageDir, context.installAnchor)]) {
             const issue = evaluatePluginCompatibility(candidate, readProfileVersionExemptions(dir))
             if (issue !== undefined && !issue.exempted) {
@@ -484,6 +521,11 @@ export async function runProfilePnpm(
           }
         } catch (error) {
           found.push(`Cannot validate installed package ${name}: ${String(error)}`)
+        }
+        if (exclusion !== undefined && Object.hasOwn(beforeDependencies, name)) {
+          const notice = `\ndsh: warning: ${exclusion}\ndsh: it stays installed, but this installation excludes its bundle layer.\n`
+          await log.write(notice)
+          options.onOutput?.(notice, 'stderr')
         }
         if (found.length === 0) continue
         if (!untouched) {

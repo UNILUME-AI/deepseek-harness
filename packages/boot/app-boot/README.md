@@ -70,6 +70,21 @@ The installation also reads [local packs](../../../apps/desktop/README.md#local-
 
 `sanitizeProfile(binName, profileDir, bundles)` provides filesystem recovery without loading plugins or parsing patches. Desktop uses it for native fatal recovery. Call it only after stopping the profile and excluding concurrent profile writes. It renames the profile’s `cordis.patch.yml` to a unique `.bak-<timestamp>` sibling and restores the supplied bundle list, preserving installed packages and other manifest fields. The timestamp is Unix time in milliseconds; collisions append an ordinal (`-1`, `-2`, …) without changing it. It returns the backup path, or `undefined` when no patch exists; missing profiles remain absent. Profile initialization recreates an empty patch on the next launch. The home-level patch is unchanged. Invalid profile JSON fails before mutation; later errors propagate and retain completed changes for retry.
 
+<a id="installation-bundle-exclusions"></a>
+### Installation bundle exclusions
+
+Set `dsh.excludeBundles` in the running installation's `package.json` or in any discovered local pack's `package.json`. Declarations are unioned across those manifests and apply to every profile of that installation; a profile's own declaration is ignored. Each value is an exact npm package name, without a version, module subpath, or pattern. An absent installation manifest, an absent field, or an empty array excludes nothing; other manifest read errors and malformed declarations fail before bundle loading.
+
+```json
+{
+  "dsh": {
+    "excludeBundles": ["@deepseek-ai/dsh-experimental-auto-review"]
+  }
+}
+```
+
+`readExcludedBundles` reads this policy before `loadProfileDirectory` resolves selected bundles. Excluded bundles contribute no patch layer, retain their persisted selection and dependency files, and appear in `skippedBundles`; `reportSkippedBundles` prints their exclusion reason once per start. Other bundles retain their order. The policy also applies on profile recomposition. The [Plugin Manager](../plugin-manager/README.md) hides excluded bundles and refuses activation and installation. Desktop packaging retains local pack manifests, so their declarations survive staging without a separate policy file. Exclusions govern bundle selection, not arbitrary plugin imports or manually inserted rows; omitting a required bundle can leave required services unavailable. Previously selected excluded bundles are also hidden, so the UI cannot deselect them; see the [selection cleanup instructions](../plugin-manager/README.md#installation-bundle-exclusions).
+
 ### Previewing the effective configuration
 
 Before you boot, you can print the exact configuration the app will mount: the dump shows the composed entry list with `!!js` expressions verbatim, grouped under comments naming each source file and the patch layers that changed it, as one loadable YAML document. Patches that match no row are reported with their layer label; a missing, unparsable, or invalid config fails the dump.
