@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { createLaunchEnvironmentSnapshot, DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
@@ -461,5 +461,22 @@ describe('real hot reload', () => {
     // content is recognized by the text cache and publishes nothing extra.
     expect(seen.length).toBe(before + 1)
     expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'self-written', source: 'file' })
+  })
+})
+
+
+describe('agent read exclusions', () => {
+  it('publishes the actual custom document even before it exists', async () => {
+    const dir = await tempDir()
+    const path = join(dir, 'custom.yaml')
+    const ctx = await boot({ path, dshHome: join(dir, 'ignored'), watch: false })
+    expect(ctx.credentials.agentDeniedReadPaths).toEqual([resolve(path)])
+  })
+
+  it('uses DSH_HOME and the home fallback through the same provider resolver', () => {
+    vi.stubEnv('DSH_HOME', '/configured/home')
+    expect(resolveSpec({}).filename).toBe(resolve('/configured/home/.credentials.yaml'))
+    vi.stubEnv('DSH_HOME', '')
+    expect(resolveSpec({}).filename).toBe(resolve(join(homedir(), '.dsh', '.credentials.yaml')))
   })
 })

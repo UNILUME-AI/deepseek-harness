@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-credentials-local` 把 API 密钥和其他机密保存在 harness home 下的私有文件中。你可以通过配置界面保存凭据，也可以直接编辑文件；变更会自动重载，保存的值也会跨重启保留。凭据查找采用固定优先级：启动环境优先，其次是存储文件、项目 `.env` 和 harness home 的 `.env`；新保存的值会立即覆盖 `.env` 中的旧值。只有你的 OS 用户能读取该文件，但 agent（智能体）的工具进程以同一用户身份运行，因此该存储无法向 agent 隔离机密。
+`dsh-credentials-local` 把 API 密钥和其他机密保存在 harness home 下的私有文件中。可以通过配置界面或直接编辑文件保存凭据，变更自动重载并跨重启保留。查找优先级为启动环境、存储文件、项目 `.env`、harness home 的 `.env`。提供方通过 `agentDeniedReadPaths` 发布实际配置的文件路径；受限的本地进程沙箱和 fs 围栏共同消费这份名单，具体保障见[沙箱后端](../../sandbox/sandbox-local/README.zh.md#known-limitations-and-deferred-work)。`danger-full-access` 没有沙箱，同一系统用户的进程仍可读取文件。
 
 ## 目录
 
@@ -112,7 +112,7 @@ records:
 
 ### 谁能读取该文件
 
-只有你的 OS 用户能读取该文件：产品以仅属主可访问的权限创建它，在 POSIX 上还会拒绝加载任何其他用户可读的文件——错误会提示你运行 `chmod 600`。Windows 没有可检查的 mode，因此在那里跳过该检查而不是伪造它。agent 不是另一个用户：它的工具进程以你的身份运行，因此它们读这个文件与读你拥有的任何其他文件毫无二致。产品绝不把文件路径交给 agent，也绝不把文件载入环境，因此要拿到某个值，需要刻意去读一条并未交给 agent 的路径。这是审慎，不是边界：必须让提供方密钥远离自身 agent 的部署无法靠文件权限做到。
+文件以属主权限 `0600` 保存，POSIX 上拒绝加载有组/其他权限的文件；Windows 不检查 POSIX mode。提供方只向受限本地后端发布文件名，不把内容放入模型请求或工具环境。名单来自同一个 `resolveSpec`：显式 `path` 优先，否则使用配置 `dshHome`、`$DSH_HOME` 或 `~/.dsh` 下的 `.credentials.yaml`。fs 围栏及各进程后端的保证与缺口见[读取排除](../../sandbox/sandbox/README.zh.md#read-exclusions)和[已知边界](../../sandbox/sandbox-local/README.zh.md#known-limitations-and-deferred-work)。完全权限与未受限的同用户进程仍可读取文件。
 
 ### 可能出错的地方
 
@@ -197,7 +197,7 @@ YAML 解析器自己的消息会引用出错的那行源码，而在这份文档
 这些限制说明本提供方何时不合适，或何时需要特别的运维注意。它们是当前包约束，不是任务积压。
 
 - **同一引用的并发写入是后写胜出**——写锁加读-改-写让并发写入者不会丢掉彼此的条目，但两个写入者编辑同一个引用时仍以较后的写入为准；没有修订检查。
-- **同 UID 进程可以读取该文档**——文件效果沙箱模式不会拒绝读取，OS 钥匙串提供方仍是延后项。
+- **完全权限与同用户进程**——`danger-full-access` 与未受限的同用户进程可读取文件；Landlock 和 Windows ACL 的凭据读取也仍不受限，见[已知边界](../../sandbox/sandbox-local/README.zh.md#known-limitations-and-deferred-work)。
 - **环境变化不可见**——快照在启动时冻结，因此启动之后 export 的变量既不会进入解析，也不会进入 `describe`；要更换来自环境的凭据需要重启。
 - **原子但不具备崩溃持久性**——继承自 `dsh-atomic-write`；存储在启动时重新读取。
 

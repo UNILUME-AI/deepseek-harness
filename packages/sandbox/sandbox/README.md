@@ -59,7 +59,7 @@ The mode names the file effects a command may perform; enforcement completeness 
 | `workspace-write` | Allows writes under the workspace root plus a backend-defined temp area |
 | `danger-full-access` | Bypasses confinement; the consumer spawns its original argv |
 
-Enforcement is reported per call: `full` means the backend governs every promised file effect, while `partial` means an active backend or older kernel ABI governs only a subset — the Windows ACL rung and older Landlock ABIs are the current partial cases, so a consumer that requires the absolute boundary can reject or surface them.
+Enforcement is reported per call: `full` governs every promised file effect; `partial` covers a subset. Nonempty read exclusions make local backends conservatively report `partial`; see [backend limits](../sandbox-local/README.md#known-limitations-and-deferred-work). Windows ACL and older Landlock ABIs also have write-policy gaps.
 
 ### Denied calls and escalation
 
@@ -102,6 +102,11 @@ The ladder is a closed table — `read-only` may escalate to `workspace-write` o
 ### Writable roots
 
 `workspace-write` means "the workspace root plus the host temp areas": `writableRoots` derives that allow-list canonically, resolving symlinks and deduplicating, so the Seatbelt profile and the in-process fs fence grant exactly the same roots.
+
+<a id="read-exclusions"></a>
+### Read exclusions
+
+`deniedReadPaths(ctx, policy)` is the single list resolver for confined local process profiles and the filesystem fence: it takes actual provider filenames from optional `ctx.credentials.agentDeniedReadPaths`, merges additional policy `deniedReadPaths`, resolves symlinks and existing ancestors, and deduplicates. Without a credential provider it does not guess a storage location. `danger-full-access` returns an empty list. `isReadDenied` compares filenames and device/inode; [backend limits](../sandbox-local/README.md#known-limitations-and-deferred-work) describe kernel gaps.
 
 </details>
 
@@ -164,7 +169,7 @@ Append-only; escalation text follows the retained prefix and does not invalidate
 
 These limits define when the seam is a poor fit or needs special operational care. They are current package constraints, not a general sandbox comparison or a task backlog.
 
-- **File effects are the whole policy vocabulary** — the seam expresses no network, process, syscall, device, or credential restrictions.
+- **Local file policy** — read exclusions identify host filenames; network, process, syscall and device isolation remain outside this interface. Remote providers cannot interpret host exclusions as remote filenames.
 - **Same-world confinement only** — containers, microVMs, and remote execution require replacing capability implementations rather than adding a provider here.
 - **Denial reporting is a stderr dialect** — the seam returns backend signatures instead of a typed runtime denial channel, so consumers that need classification infer it from the child process's output.
 - **Runner diagnostics are in-band** — exit status plus stderr evidence cannot prove which process wrote a matching line, so a confined child that deliberately mimics its runner can cause a false availability or diagnostic attribution; this cannot bypass confinement, and an out-of-band runner-status channel is deferred.

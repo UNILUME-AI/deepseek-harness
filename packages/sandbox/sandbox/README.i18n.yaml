@@ -24,8 +24,8 @@
   en: c5540889017b6a7f
   zh: 679bfbd5254bf92d
 /deepseek-ai-dsh-sandbox/use-this-package/modes-and-enforcement:
-  en: ab093e9042b86b99
-  zh: d173df7cb3649446
+  en: cfffa1e3e10414dd
+  zh: 552084ce404ba030
 /deepseek-ai-dsh-sandbox/use-this-package/denied-calls-and-escalation:
   en: 92cf42bad65d112c
   zh: 60fa2cb7e9c4c556
@@ -45,8 +45,11 @@
   en: 1b418d41f571ab3d
   zh: 62b289cdd6f4d272
 /deepseek-ai-dsh-sandbox/understand-the-implementation/writable-roots:
-  en: 956d3195cf7a35f8
-  zh: f83d8342e22bb7cd
+  en: 9d2a79462c5ecdd6
+  zh: 135e071a16a78b5b
+/deepseek-ai-dsh-sandbox/understand-the-implementation/read-exclusions:
+  en: d955c405f0760014
+  zh: 6f14f826089730e0
 /deepseek-ai-dsh-sandbox/further-exploration:
   en: 9f0d57097c678a25
   zh: 58e765bf1b223215
@@ -81,8 +84,8 @@
   en: ea21ed3a768ed4b8
   zh: 8e2f396a6875420e
 /deepseek-ai-dsh-sandbox/known-limitations-and-deferred-work:
-  en: 63ff67b6fd13b4b0
-  zh: 6c8efa9ee99ea9bf
+  en: 25bd48032525bbaa
+  zh: 633f144d8e1e1a75
 /deepseek-ai-dsh-sandbox/known-limitations-and-deferred-work/dev-note:
   en: cc273320f6a1beaf
   zh: 5c57a312ddc50651

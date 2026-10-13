@@ -550,6 +550,11 @@ export class LocalCredentialProvider extends CredentialProvider {
     this.spec = resolveSpec(config)
   }
 
+  /** The actual configured credentials document, including while it does not yet exist. */
+  override get agentDeniedReadPaths(): readonly string[] {
+    return [this.spec.filename]
+  }
+
   /** The inherited-environment value for a reference, or `undefined` when empty or unset. */
   private inherited(ref: CredentialRef): string | undefined {
     const entry = launchEnvironmentOf(this.ctx).getFrom(ref, ['process'])

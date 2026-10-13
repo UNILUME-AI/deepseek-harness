@@ -6,6 +6,8 @@ The credential seam of [dsh-credentials](../../packages/credentials/credentials)
 
 Source: [`packages/credentials/credentials/src/index.ts`](../../packages/credentials/credentials/src/index.ts)
 
+Local credential providers publish absolute filenames hidden from confined agents through `agentDeniedReadPaths`, which defaults to an empty list. The shared [read-exclusion derivation](../../packages/sandbox/sandbox/README.md#read-exclusions) feeds local process profiles and the filesystem fence.
+
 ## Identity
 
 A reference names one credential as a POSIX-style environment-variable name. The brand prevents callers from mixing credential references with other strings passed between packages or processes; construction validates the shell-identifier syntax.

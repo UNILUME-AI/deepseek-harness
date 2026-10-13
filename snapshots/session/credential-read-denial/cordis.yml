@@ -1,0 +1,5 @@
+- id: credentials
+  name: '@deepseek-ai/dsh-credentials-local'
+  config:
+    path: !!js process.cwd() + '/Secret.yaml'
+    watch: false

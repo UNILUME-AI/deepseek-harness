@@ -249,3 +249,40 @@ describe('the sandbox/mode session kit', () => {
     expect(modeEvents[0]?.data).toEqual({ mode: 'danger-full-access' })
   })
 })
+
+
+describe('additional host read exclusions', () => {
+  it('carries additions through per-call resolution without changing the mode', async () => {
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SessionProjectionRegistry)
+      await ctx.plugin(SandboxPolicyService, { deniedReadPaths: [resolve('secret.yaml')] })
+      expect(ctx.sandboxPolicy.resolve().deniedReadPaths).toEqual([resolve('secret.yaml')])
+      expect(ctx.sandboxPolicy.resolve({ mode: 'danger-full-access' }).mode).toBe('danger-full-access')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('rejects relative exclusions at load', async () => {
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SessionProjectionRegistry)
+      await expect(ctx.plugin(SandboxPolicyService, { deniedReadPaths: ['secret.yaml'] })).rejects.toThrow('must be absolute host paths')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+})
+
+
+it('resolves absent additions during direct programmatic construction', async () => {
+  const ctx = new Context()
+  try {
+    await ctx.plugin(SessionProjectionRegistry)
+    const policy = new SandboxPolicyService(ctx, { mode: 'read-only' })
+    expect(policy.resolve().deniedReadPaths).toBeUndefined()
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})

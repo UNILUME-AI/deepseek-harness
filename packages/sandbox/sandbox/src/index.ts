@@ -20,6 +20,7 @@ export {
 } from './escalation.ts'
 export type { EscalationApproval, EscalationApprover, EscalationOutcome, EscalationRequest } from './escalation.ts'
 export { canonicalPath, writableRoots } from './roots.ts'
+export { deniedReadPaths, isReadDenied } from './read-denial.ts'
 
 /**
  * File-effect policy for confined processes. `read-only` permits only required
@@ -42,6 +43,8 @@ export interface SandboxExecutionPolicy {
   mode: SandboxMode
   /** Absolute root directory `workspace-write` may write under. */
   workspaceRoot: string
+  /** Additional absolute host files denied to local confined readers; credential-provider files are always included. */
+  deniedReadPaths?: readonly string[]
   /**
    * Opaque identity of the calling session (the branded `dsh-session`
    * SessionId). Backends key per-session state off it (e.g. windows-acl gives

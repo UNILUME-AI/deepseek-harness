@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-credentials-local` keeps API keys and other secrets in a private file under your harness home. You can save credentials through the configuration UI or edit the file directly; changes reload automatically and saved values survive restarts. Credential lookup follows a fixed precedence: the launch environment wins, followed by the stored file, the project's `.env`, and the harness-home `.env`; a newly saved value immediately overrides older `.env` values. Only your OS user can read the file, but agent tool processes run as that same user, so this store cannot isolate secrets from the agent.
+`dsh-credentials-local` keeps API keys and other secrets in a private file under your harness home. Save credentials through the configuration UI or edit the file directly; changes reload automatically and survive restarts. Lookup precedence is the launch environment, stored file, project `.env`, then harness-home `.env`. The provider publishes its actual configured filename through `agentDeniedReadPaths`; confined local process and filesystem providers consume the same list, with [backend-specific guarantees](../../sandbox/sandbox-local/README.md#known-limitations-and-deferred-work). `danger-full-access` has no sandbox, so a same-user process can still read the file.
 
 ## Table of Contents
 
@@ -112,7 +112,7 @@ A key's value can be any text, multi-line values included — no quoting tricks 
 
 ### Who can read the file
 
-Only your OS user can read the file: the product creates it with owner-only permissions, and on POSIX it refuses to load a file that any other user can read — the error tells you to run `chmod 600`. Windows has no mode to inspect, so the check is skipped there rather than faked. The agent is not another user: its tool processes run as you, so they can read the file like any other file you own. The product never hands the agent the file's path and never loads the file into the environment, so reaching a value takes a deliberate read of a path the agent was not given. That is discretion, not a boundary: a deployment that must keep provider keys away from its own agent cannot get there with file permissions.
+The file is stored with owner permissions `0600`; POSIX rejects group/other access bits, while Windows does not inspect POSIX modes. The provider publishes only its filename to confined local backends, never file contents to model requests or tool environments. The list uses the same `resolveSpec`: explicit `path` wins, otherwise `.credentials.yaml` lives under configured `dshHome`, `$DSH_HOME`, or `~/.dsh`. See [read exclusions](../../sandbox/sandbox/README.md#read-exclusions) and [known limits](../../sandbox/sandbox-local/README.md#known-limitations-and-deferred-work) for filesystem and process guarantees. Full access and unconfined same-user processes can still read the file.
 
 ### What can go wrong
 
@@ -197,7 +197,7 @@ No direct invalidation; stored values never enter a request prefix.
 These limits define when the provider is a poor fit or needs special operational care. They are current package constraints, not a task backlog.
 
 - **Same-reference concurrent writes are last-write-wins** — the writer lock and the read-modify-write keep concurrent writers from dropping each other's entries, but two writers editing one reference still resolve to the later write; there is no revision check.
-- **A same-UID process can read the document** — the file-effect sandbox modes do not deny reads, and an OS-keychain provider is deferred.
+- **Full access and same-user processes** — `danger-full-access` and unconfined same-user processes can read the file; Landlock and Windows ACL also leave credential reads unrestricted. See [known limits](../../sandbox/sandbox-local/README.md#known-limitations-and-deferred-work).
 - **Environment changes are invisible** — the snapshot is frozen at launch, so a variable exported after startup reaches neither resolution nor `describe`; changing an environment-sourced credential takes a restart.
 - **Atomic, not crash-durable** — inherited from `dsh-atomic-write`; the store re-reads on boot.
 

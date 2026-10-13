@@ -172,6 +172,11 @@ export abstract class CredentialProvider extends Service {
     super(ctx, 'credentials')
   }
 
+  /** Files containing secrets that local confined capabilities must not read; remote providers expose none. */
+  get agentDeniedReadPaths(): readonly string[] {
+    return []
+  }
+
   /**
    * Resolve one reference to its current value. Resolution is per call:
    * consumers re-resolve at each operation and must not cache across

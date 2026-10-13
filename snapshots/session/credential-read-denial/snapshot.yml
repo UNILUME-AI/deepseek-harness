@@ -1,0 +1,16 @@
+version: 1
+scenario: credential-read-denial
+profile: headless
+composition: credential-read-denial
+recording: authored
+header:
+  class: credential-read-denial
+  pin: true
+  systemPromptSource: text-turn
+  toolSchemasSource: text-turn
+replay:
+  override: true
+permission: workspace-write
+workspace:
+  setup: owner-only-credentials
+  final: true

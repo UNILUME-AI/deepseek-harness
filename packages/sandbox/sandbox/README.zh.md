@@ -59,7 +59,7 @@ kind: "package-reference"
 | `workspace-write` | 允许写入工作区根目录及后端定义的临时区域 |
 | `danger-full-access` | 绕过隔离；消费方直接 spawn 原始 argv |
 
-强制执行逐调用报告：`full` 表示后端管辖模式承诺的每个文件操作，`partial` 表示活动后端或较旧的内核 ABI 只管辖子集——Windows ACL 档与较旧的 Landlock ABI 是当前的部分强制执行情形，需要绝对边界的消费方可以拒绝或向上暴露它们。
+强制执行逐调用报告：`full` 表示后端管辖全部承诺的文件操作，`partial` 表示只覆盖子集。非空禁读名单使本地后端保守报告 `partial`，见[后端边界](../sandbox-local/README.zh.md#known-limitations-and-deferred-work)。Windows ACL 与较旧的 Landlock ABI 的写入策略也可能只部分生效。
 
 ### 被拒绝的调用与升权
 
@@ -102,6 +102,11 @@ kind: "package-reference"
 ### 可写根目录
 
 `workspace-write` 意味着「工作区根目录加宿主临时区域」：`writableRoots` 以规范化方式推导该白名单，解析符号链接并去重，使 Seatbelt profile 与进程内 fs 栅栏授予完全相同的根目录。
+
+<a id="read-exclusions"></a>
+### 读取排除
+
+`deniedReadPaths(ctx, policy)` 是受限本地进程 profile 和 fs 围栏的唯一名单解析函数：从可选 `ctx.credentials.agentDeniedReadPaths` 取得提供方实际文件名，再合并策略的附加 `deniedReadPaths`，解析符号链接与已存在的祖先并去重。未加载凭据提供方时不猜测文件位置。`danger-full-access` 返回空名单。`isReadDenied` 比较路径与设备号/inode；各内核后端的缺口见[后端边界](../sandbox-local/README.zh.md#known-limitations-and-deferred-work)。
 
 </details>
 
@@ -164,7 +169,7 @@ sandbox mode "<mode>" is requested but no sandbox backend is usable on this host
 
 这些限制说明该 seam 何时不合适，或何时需要特别运维。它们是当前包约束，不是通用沙箱对比或任务积压。
 
-- **文件操作是完整的策略词汇**——该 seam 不表达网络、进程、系统调用、设备或凭据限制。
+- **本地文件策略**——读取排除只表达宿主文件名；网络、进程、系统调用和设备隔离仍不在本接口中。远程提供方不能把宿主路径当作远程路径。
 - **只支持与宿主共享文件系统和内核的限制**——容器、microVM 与远程执行需要替换能力实现，而不是在此添加提供方。
 - **拒绝报告是一种 stderr 方言**——该 seam 返回后端签名，而非类型化运行时拒绝通道，需要分类的消费方必须从子进程输出推断。
 - **Runner 诊断使用带内通道**——退出状态与 stderr 证据无法证明匹配行由哪个进程写入，因此故意模仿 runner 的受限子进程可能造成错误的可用性或诊断归因；这无法绕过隔离，带外 runner 状态通道暂缓实现。

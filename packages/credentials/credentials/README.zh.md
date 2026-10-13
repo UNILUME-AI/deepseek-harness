@@ -126,6 +126,8 @@ apiKeyEnv: DEEPSEEK_API_KEY
 
 `modifyRecord` 是唯一写路径，因为正确的写入依赖当前值：刷新 token 是「读—决定—替换」，变更函数看到的是写入取得独占那一刻的记录——返回 `undefined` 则保持原状。独占在支持它的底层存储上跨进程成立，这正是防止两个进程同时轮换一个 refresh token、丢掉先写那一个的机制。读取与引用一侧对称，但绝不分层：没有任何东西能遮蔽记录，`grant` 的 payload 会原样返回给其拥有者，因为只有拥有它的插件能解释它。
 
+提供方的 `agentDeniedReadPaths` 发布需对受限本地文件访问隐藏的文件名；默认值为空，本地存储发布自己解析出的实际文件名。共享[读取排除函数](../../sandbox/sandbox/README.zh.md#read-exclusions)供进程沙箱和 fs 围栏消费。
+
 ### 源码地图
 
 | 文件 | 职责 |

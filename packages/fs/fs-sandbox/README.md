@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-fs-sandbox` confines model file writes and edits according to each session's sandbox mode while preserving the local filesystem's read behavior. In `read-only`, it rejects every mutation; in `workspace-write`, it permits targets only inside the session workspace or a platform temporary root; in `danger-full-access`, it does not restrict mutations. Use it instead of `fs-local` with `ctx.sandboxPolicy` when sessions need workspace-confined file changes. Denied operations return `FS_SANDBOX_DENIED`, which filesystem tools present with the active mode and a same-turn escalation hint.
+`dsh-fs-sandbox` confines file mutations by session mode and denies credential-file and additional excluded reads in `read-only` and `workspace-write`. `read-only` rejects every mutation; `workspace-write` permits mutations inside the workspace or platform temp roots; `danger-full-access` leaves reads and writes unrestricted. Use it instead of `fs-local` with `ctx.sandboxPolicy`. Refused reads return `FS_SANDBOX_DENIED`; mutating tools also present escalation guidance.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount this backend instead of `fs-local` when the model's file writes and edits must be confined by the session's sandbox mode, while reads stay unconfined. The fence applies per call: the tool layer resolves the calling session's mode and workspace root into the same policy the bash runner receives, so the filesystem and shell families never confine to different roots.
+Mount this backend instead of `fs-local` when model file access must obey session policy. Writable roots share `writableRoots` with Seatbelt; read exclusions share `deniedReadPaths` with process profiles.
 
 ### Minimal composition
 
@@ -47,7 +47,7 @@ The effective mode comes from the calling session's override or escalation grant
 
 ### Observable success and failures
 
-Reads, listings, metadata, and read-only watches work exactly as with `fs-local`; the mutation fence does not restrict observation. A denied mutation returns an `FS_SANDBOX_DENIED` error carrying the effective mode; through the tools the model sees `[sandbox: file access denied under <mode> mode]` plus the one-approved-wider retry hint, identical to bash's denials. A session with an approved escalation may retry the same operation at a strictly wider mode for that one call.
+Text, streaming, whole-byte and byte-window reads check exclusions in confined modes; ordinary reads, directory listings, metadata and read-only watches retain local behavior. Read policy comes from the initiating agent session, or the deployment default for agentless calls. Refused reads return `FS_SANDBOX_DENIED`; mutating tools render their denials with `[sandbox: file access denied under <mode> mode]` and the one-call escalation hint.
 
 -----
 
@@ -73,6 +73,8 @@ The fence is a policy check in trusted code over a model-controlled path — not
 ### How a mutation is fenced
 
 Each mutation resolves the per-call policy (`danger-full-access` returns the caller's target untouched; `read-only` throws `FS_SANDBOX_DENIED`), then for `workspace-write` re-canonicalizes the target immediately and requires containment under one of the writable roots derived from the single `writableRoots` function — the same set the Seatbelt profile grants, so the fs fence and the bash runner cannot drift. The fresh target is the one mutated, so a symlink ancestor swapped since the tool resolved it is caught.
+
+Immediately before reading, the provider resolves the target again and compares the shared exclusions by canonical filename and device/inode. It rejects symlinks, `..`, case aliases and hard links to the current credential inode. Mutations also check exclusions before diff or match reads can disclose credentials.
 
 ### Threat model
 
@@ -123,6 +125,8 @@ These limits define when the sandbox backend is a poor fit or needs special oper
 - **A policy fence, not a kernel boundary** — the check is trusted code over a model-controlled path, so the residual resolve-to-syscall TOCTOU is narrowed (by the in-place re-canonicalization) but not eliminated; adversarial host processes are out of scope. Kernel-grade isolation of untrusted code stays `ctx.shell`'s.
 - **Fence-vs-runner parity is derived from one owner** — the writable set comes from `writableRoots`, shared with the Seatbelt profile; a runner profile that defines its writable set elsewhere would drift.
 - **Requires `ctx.sandboxPolicy`** — tools use it to resolve each session policy and the backend uses it for agentless-call fallbacks; the backend does not confine without it composed.
+
+- **Known read limits** — concurrent replacement between checking and opening remains a race; an already-open stream is not revoked on credential changes. Inode matching covers the current file; a stale hard-link copy left by atomic credential replacement cannot be identified from the current filename. macOS and Windows path comparison conservatively ignores case, potentially denying distinct files on case-sensitive volumes. `danger-full-access` bypasses the fence.
 
 <a id="dev-note"></a>
 ### Dev Note

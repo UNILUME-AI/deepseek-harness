@@ -2561,8 +2561,9 @@ export interface Config {
 export interface Config {
   /**
    * Override the runner argv; bwrap-compatible profile arguments are appended. A
-   * non-empty override asserts full enforcement and skips built-in selection and
-   * probing. A runner that starts but refuses its profile must be identifiable by
+   * non-empty override skips built-in selection and probing, asserting full write
+   * enforcement; nonempty read exclusions still report partial. A runner that
+   * starts but refuses its profile must be identifiable by
    * {@link runnerFailureSignatures}. Consumers classify a spawn rejection only after
    * confirming the workdir is usable. `ENOENT` or `EACCES` identifies the runner when
    * `error.path` equals argv[0] and `error.syscall` is `spawn` or `spawn <runner>`, or
@@ -2608,6 +2609,8 @@ export interface Config {
    * `process.cwd()`). Normal agent calls use their session cwd instead.
    */
   workspaceRoot?: string
+  /** Additional absolute host file paths denied in confined modes; does not replace credential-provider paths. */
+  deniedReadPaths?: string[]
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-sandbox-policy -->
