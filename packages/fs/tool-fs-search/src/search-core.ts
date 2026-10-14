@@ -107,6 +107,18 @@ export interface RipgrepRun {
 }
 
 /**
+ * The working directory one search call resolves paths against and runs in:
+ * the calling agent's session cwd when available, else `process.cwd()`. The
+ * pre-spawn path checks and the spawn itself share this one resolution so a
+ * call can never check against one directory and run in another.
+ * @param exec - the tool-execution context; supplies the session.
+ * @returns the resolved working directory.
+ */
+export function searchWorkdir(exec: ToolExecution): string {
+  return exec.agent?.session.header.cwd ?? process.cwd()
+}
+
+/**
  * The retained stderr tail as a diagnostic excerpt, with a truncation note when
  * the subprocess seam dropped bytes.
  */
@@ -127,6 +139,19 @@ function classifyRunFailure(toolName: string, exitCode: number, stderrText: stri
     return new SearchError(`${toolName} pattern rejected by ripgrep: ${stderr}`, 'SEARCH_INVALID_PATTERN')
   }
   return new SearchError(`${toolName} search failed (exit ${exitCode})${stderr.length > 0 ? `: ${stderr}` : ''}`, 'SEARCH_FAILED')
+}
+
+/**
+ * Classify a synchronous launch-stage failure (a NUL in argv, a rejected
+ * `@vscode/ripgrep` resolution, a spawn racing an abort): an abort already
+ * observed becomes `SEARCH_ABORTED`; anything else is `SEARCH_FAILED` with
+ * the original as `cause`.
+ */
+function launchFailure(toolName: string, signal: AbortSignal, error: unknown): SearchError {
+  if (signal.aborted) {
+    return new SearchError(`${toolName} was aborted before completion (tool timeout or caller cancellation)`, 'SEARCH_ABORTED')
+  }
+  return new SearchError(`${toolName} could not start its search command (ripgrep launch failed)`, 'SEARCH_FAILED', { cause: error })
 }
 
 /**
@@ -185,23 +210,30 @@ export function resolveRgPath(): Promise<string> {
 
 /**
  * Run the packaged ripgrep binary with a plain argv vector and return its
- * complete raw stdout. The working directory is the calling agent's session
- * cwd (`exec.agent.session.header.cwd`) when available, else
- * `process.cwd()`. `exec.signal` is forwarded so the cooperative tool timeout
+ * complete raw stdout. The working directory is {@link searchWorkdir}.
+ * `exec.signal` is forwarded so the cooperative tool timeout
  * (`@deepseek-ai/dsh-tool-call-timeout-policy`) and caller cancellation terminate the
  * process tree.
  *
- * The spawn is unconfined (a plain `ctx.subprocess` call), so `--no-config`
- * is prepended: a host `RIPGREP_CONFIG_PATH` (or `rg.conf` next to the
- * binary) can otherwise inject `--pre` and make ripgrep execute an arbitrary
- * preprocessor for every matched file. The collect dispositions are the
- * seam's diagnostic-tail shape (no spill files): the tools never read a raw
- * spill path, and truncated stdout fails as `SEARCH_RAW_OUTPUT_OVERFLOW`.
+ * `--no-config` is prepended: a host `RIPGREP_CONFIG_PATH` (or `rg.conf` next
+ * to the binary) can otherwise inject `--pre` and make ripgrep execute an
+ * arbitrary preprocessor for every matched file. The collect dispositions are
+ * the seam's diagnostic-tail shape (no spill files): the tools never read a
+ * raw spill path, and truncated stdout fails as `SEARCH_RAW_OUTPUT_OVERFLOW`.
+ *
+ * With `confine`, a mounted `ctx.sandbox` provider wraps the ripgrep argv
+ * through `confine()` under the calling session's resolved `ctx.sandboxPolicy`
+ * policy — the same provider and per-call resolution the bash tool uses — so
+ * excluded reads are denied by the kernel rather than only by the tool's
+ * pre-spawn check and result filter. `danger-full-access`, a missing
+ * provider, or a missing policy service keeps the plain spawn.
  *
  * Exit semantics are tool-owned: exit 0 is success with results, exit 1 is
- * success with zero results (`noMatches`), anything else throws a
- * {@link SearchError} (abort/timeout → `SEARCH_ABORTED`, invalid pattern →
- * `SEARCH_INVALID_PATTERN`, the rest → `SEARCH_FAILED` /
+ * success with zero results (`noMatches`), exit 2 with streamed payload is a
+ * PARTIAL success (a confined search reports a permission error per excluded
+ * file while the remaining files' matches still stream), and anything else
+ * throws a {@link SearchError} (abort/timeout → `SEARCH_ABORTED`, invalid
+ * pattern → `SEARCH_INVALID_PATTERN`, the rest → `SEARCH_FAILED` /
  * `SEARCH_RAW_OUTPUT_OVERFLOW`). Both launch-time failure domains are
  * classified: a synchronous throw at spawn CREATION (a NUL in argv, an abort
  * racing the pre-check, a rejected `@vscode/ripgrep` resolution) reports that
@@ -217,6 +249,7 @@ export function resolveRgPath(): Promise<string> {
  * @param rawOutputMaxBytes - cap on the complete raw stdout the tool will parse.
  * @param graceMs - the seam's terminate-escalation grace period.
  * @param stderrMaxBytes - cap on the retained stderr diagnostic tail.
+ * @param confine - wrap the spawn through `ctx.sandbox` under the session's policy when available.
  * @returns the complete stdout, the zero-result flag, and the resolved workdir.
  */
 export async function runRipgrep(
@@ -227,16 +260,43 @@ export async function runRipgrep(
   rawOutputMaxBytes: number,
   graceMs: number,
   stderrMaxBytes: number,
+  confine = false,
 ): Promise<RipgrepRun> {
   if (exec.signal.aborted) {
     throw new SearchError(`${toolName} was aborted before completion (tool timeout or caller cancellation)`, 'SEARCH_ABORTED')
   }
-  const cwd = exec.agent?.session.header.cwd
-  const workdir = cwd ?? process.cwd()
+  const workdir = searchWorkdir(exec)
+  let spawnArgv: readonly string[]
+  try {
+    spawnArgv = [await resolveRgPath(), '--no-config', ...argv]
+  } catch (error: unknown) {
+    throw launchFailure(toolName, exec.signal, error)
+  }
+  if (confine) {
+    // Both services stay name-looked-up (untyped, like grep's read-denial
+    // check): this package must not statically depend on the sandbox seam.
+    // The resolution mirrors the bash tool — the provider from ctx.sandbox,
+    // the per-call policy from ctx.sandboxPolicy.resolve(session).
+    const sandbox = ctx.get('sandbox')
+    const policy = ctx.get('sandboxPolicy')?.resolve(exec.agent === undefined ? {} : { session: exec.agent.session })
+    if (sandbox !== undefined && policy !== undefined && policy.mode !== 'danger-full-access') {
+      try {
+        spawnArgv = (await sandbox.confine(spawnArgv, policy, exec.signal)).argv
+      } catch (error: unknown) {
+        // The signal can abort while confinement is prepared; the static
+        // narrowing cannot see AbortSignal state changes.
+        // oxlint-disable-next-line typescript/no-unnecessary-condition
+        if (exec.signal.aborted) {
+          throw new SearchError(`${toolName} was aborted before completion (tool timeout or caller cancellation)`, 'SEARCH_ABORTED')
+        }
+        throw new SearchError(`${toolName} could not confine its search command (sandbox unavailable)`, 'SEARCH_FAILED', { cause: error })
+      }
+    }
+  }
   let handle: SubprocessHandle
   try {
     handle = ctx.subprocess.spawn({
-      argv: [await resolveRgPath(), '--no-config', ...argv],
+      argv: [...spawnArgv],
       cwd: workdir,
       stdio: {
         stdin: 'ignore',
@@ -249,14 +309,8 @@ export async function runRipgrep(
   } catch (error: unknown) {
     // Node's spawn() throws synchronously for a NUL in argv, and the local
     // impl can throw synchronously when the signal aborts between the check
-    // above and this call (or when the platform-package resolution rejects).
-    // The static narrowing that proves this re-check "always false" cannot
-    // see AbortSignal state changes.
-    // oxlint-disable-next-line typescript/no-unnecessary-condition
-    if (exec.signal.aborted) {
-      throw new SearchError(`${toolName} was aborted before completion (tool timeout or caller cancellation)`, 'SEARCH_ABORTED')
-    }
-    throw new SearchError(`${toolName} could not start its search command (ripgrep launch failed)`, 'SEARCH_FAILED', { cause: error })
+    // above and this call.
+    throw launchFailure(toolName, exec.signal, error)
   }
   let outcome: SubprocessOutcome
   try {
@@ -278,7 +332,16 @@ export async function runRipgrep(
   if (outcome.signal !== null || outcome.exitCode === null) {
     throw new SearchError(`${toolName} search command was killed by signal ${outcome.signal ?? '(unknown)'}`, 'SEARCH_FAILED')
   }
-  if (outcome.exitCode !== 0 && outcome.exitCode !== 1) {
+  // Exit 2 means ripgrep hit errors; with streamed payload it is a PARTIAL
+  // success: a confined search reports a permission error per read-denied
+  // file while every other file's matches still stream. Payload presence is
+  // the distinguisher — `rg --json` opens each searched file with a begin
+  // record, so a summary-only stream (a missing explicit target) and an empty
+  // stream keep the failure classification.
+  const partialErrors = outcome.exitCode === 2 && (toolName === 'grep'
+    ? stdout.text.includes('"type":"begin"')
+    : stdout.text.trim().length > 0)
+  if (outcome.exitCode !== 0 && outcome.exitCode !== 1 && !partialErrors) {
     throw classifyRunFailure(toolName, outcome.exitCode, stderr.text, stderr.lossy)
   }
   const text = completeStdout(toolName, stdout, rawOutputMaxBytes)

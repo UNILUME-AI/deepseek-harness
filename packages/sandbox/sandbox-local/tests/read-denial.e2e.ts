@@ -10,6 +10,43 @@ import { LocalCredentialProvider } from '@deepseek-ai/dsh-credentials-local'
 const probe = spawnSync('sandbox-exec', ['-p', '(version 1) (allow default)', 'true'], { encoding: 'utf8' })
 
 describe.skipIf(process.platform !== 'darwin' || probe.status !== 0)('real Seatbelt protected credential reads', () => {
+  it('denies renaming an ancestor directory of a protected file while preserving writes beside it', async ({ onTestFinished }) => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-seatbelt-dir-rename-'))
+    onTestFinished(() => { rmSync(root, { recursive: true, force: true }) })
+    const ctx = new Context()
+    onTestFinished(async () => { await ctx.fiber.dispose() })
+    const dir = join(root, 'd')
+    mkdirSync(dir)
+    const file = join(dir, 'Secret.yaml')
+    const content = 'version: 1\nrefs:\n  DSH_READ_DENIAL_TEST: fixture-secret\n'
+    writeFileSync(file, content, { mode: 0o600 })
+    await ctx.plugin(LocalCredentialProvider, { path: file, watch: false })
+    await ctx.plugin(LocalSandboxProvider)
+    const policy = { mode: 'workspace-write' as const, workspaceRoot: root }
+    for (const [source, target] of [[dir, join(root, 'e')], [root, `${root}-renamed`]] as const) {
+      const confined = await ctx.sandbox.confine(
+        ['/bin/sh', '-c', 'mv "$1" "$2" && cat "$2/Secret.yaml"', 'rename-test', source, target], policy,
+      )
+      const result = spawnSync(confined.argv[0]!, confined.argv.slice(1), { encoding: 'utf8' })
+      expect(result.error).toBeUndefined()
+      expect(result.signal).toBeNull()
+      expect(result.status).not.toBe(0)
+      expect(result.stdout).toBe('')
+      expect(result.stdout).not.toContain('fixture-secret')
+      expect(result.stderr.toLowerCase()).toContain('operation not permitted')
+      expect(existsSync(target)).toBe(false)
+      expect(readFileSync(file, 'utf8')).toBe(content)
+    }
+
+    const ordinary = await ctx.sandbox.confine(
+      ['/bin/sh', '-c', 'printf ok > "$1/new.txt" && rm "$1/new.txt" && mkdir "$1/sub" && rmdir "$1/sub"', 'dir-ops-test', dir], policy,
+    )
+    const written = spawnSync(ordinary.argv[0]!, ordinary.argv.slice(1), { encoding: 'utf8' })
+    expect(written.error).toBeUndefined()
+    expect(written.signal).toBeNull()
+    expect(written.status).toBe(0)
+  })
+
   it('denies renaming a protected workspace file and preserves ordinary workspace writes', async ({ onTestFinished }) => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-seatbelt-secret-rename-'))
     onTestFinished(() => { rmSync(root, { recursive: true, force: true }) })

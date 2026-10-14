@@ -6,6 +6,7 @@
 
 import { grantArgs as landlockGrantArgs } from '@deepseek-ai/node-addon-system/landlock-run'
 import { existsSync } from 'node:fs'
+import { dirname } from 'node:path'
 import { writableRoots } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 
@@ -49,7 +50,12 @@ function sbplString(path: string): string {
  * Build the sandbox-exec arguments and SBPL profile for one policy. The
  * writable roots come from the shared {@link writableRoots} helper (canonical,
  * deduplicated) so the Seatbelt grant and the in-process fs fence
- * (`@deepseek-ai/dsh-fs-sandbox`) can never drift apart.
+ * (`@deepseek-ai/dsh-fs-sandbox`) can never drift apart. Beyond the denied
+ * files themselves, every ancestor directory (up to `/`) is denied writes:
+ * renaming a parent inside a writable root would otherwise move the file out
+ * from under its literal read denial. The directory literals match only the
+ * directories themselves, so creating, rewriting, and deleting other entries
+ * in them stays permitted.
  * @param policy - file-effect policy to express as an SBPL profile.
  * @param denied - canonical filenames whose reads and mutations must be denied, including rename.
  * @returns sandbox-exec arguments before the trailing separator and command argv.
@@ -63,6 +69,16 @@ export function seatbeltProfileArgs(policy: SandboxPolicy, denied: readonly stri
   if (denied.length > 0) {
     const files = denied.map(path => `(literal ${sbplString(path)})`).join(' ')
     forms.push(`(deny file-read* ${files})`, `(deny file-write* ${files})`)
+    const parents = new Set<string>()
+    for (const path of denied) {
+      let dir = dirname(path)
+      while (!parents.has(dir)) {
+        parents.add(dir)
+        dir = dirname(dir)
+      }
+    }
+    const directories = [...parents].map(dir => `(literal ${sbplString(dir)})`).join(' ')
+    forms.push(`(deny file-write* ${directories})`)
   }
   return ['-p', forms.join(' ')]
 }

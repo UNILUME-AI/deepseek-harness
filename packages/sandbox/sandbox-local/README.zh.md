@@ -136,8 +136,7 @@ Windows 档为每个工作区保留一个确定性写入 SID 和常驻 ACE，同
 - **Seatbelt 依赖已弃用的 `sandbox-exec`**——macOS 仍会提供它，但若 Apple 移除该私有策略引擎，该提供方无法替换或探测。
 - **runner 选择在提供方生命周期内缓存**——安装、移除或修复 runner 后，必须重载插件才能改变选择。
 - **`runnerCommand` 是操作方断言**——配置的自定义 runner 会跳过功能探测，并假定它诚实实现与 bwrap 兼容的 profile；如果它本身是 Bash 脚本，其解释器启动发生在该脚本施加约束之前。
-
-- **已知读取边界**——Seatbelt 与 bwrap 按解析后的路径阻止符号链接和 `..` 别名；默认大小写不敏感 macOS 上的路径别名由 Seatbelt 解析。两者均不保证阻止其他路径上已存在的硬链接；Seatbelt 即使在可写根中也拒绝修改指定的受保护文件，包括改名。bwrap 对启动时不存在的文件不做挂载，后续新建文件也不受该次遮盖。名单和挂载是在启动时确定，路径重定向、文件替换、已继承的打开文件描述符及其他读取接口不构成完整机密隔离。Landlock 与 Windows ACL 的四种路径变体均仍可读取。fs 围栏可按 inode 拒绝当前文件的硬链接，见[围栏限制](../../fs/fs-sandbox/README.zh.md#known-limitations-and-deferred-work)。`danger-full-access` 完全不应用这些限制。
+- **已知读取边界**——Seatbelt 与 bwrap 按解析后的路径阻止符号链接和 `..` 别名；默认大小写不敏感 macOS 上的路径别名由 Seatbelt 解析。两者均不保证阻止其他路径上已存在的硬链接；Seatbelt 即使在可写根中也拒绝修改指定的受保护文件，并拒绝其任一级上级目录的改名。bwrap 对启动时不存在的文件不做挂载，后续新建文件也不受该次遮盖。名单和挂载是在启动时确定，路径重定向、文件替换、已继承的打开文件描述符及其他读取接口不构成完整机密隔离。Landlock 与 Windows ACL 的四种路径变体均仍可读取。fs 围栏可按 inode 拒绝当前文件的硬链接，见[围栏限制](../../fs/fs-sandbox/README.zh.md#known-limitations-and-deferred-work)。`danger-full-access` 完全不应用这些限制。
 
 <a id="dev-note"></a>
 ### 开发备注

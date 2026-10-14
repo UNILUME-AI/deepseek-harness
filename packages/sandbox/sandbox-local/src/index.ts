@@ -44,14 +44,14 @@ import { bwrapProfileArgs, landlockProfileArgs, seatbeltProfileArgs } from './pr
 /** Plugin config. All optional — `static Config` supplies the defaults. */
 export interface Config {
   /**
-   * Override the runner argv; bwrap-compatible profile arguments are appended. A
-   * non-empty override skips built-in selection and probing, asserting full write
-   * enforcement. A runner that
-   * starts but refuses its profile must be identifiable by
-   * {@link runnerFailureSignatures}. Consumers classify a spawn rejection only after
-   * confirming the workdir is usable. `ENOENT` or `EACCES` identifies the runner when
-   * `error.path` equals argv[0] and `error.syscall` is `spawn` or `spawn <runner>`, or
-   * when `error.path` is absent and `error.syscall` is exactly `spawn <runner>`.
+   * Override the runner argv; bwrap-compatible profile arguments are appended.
+   * A non-empty override skips built-in selection and probing, asserting full
+   * write enforcement. A runner that starts but refuses its profile must be
+   * identifiable by {@link runnerFailureSignatures}. Consumers classify a
+   * spawn rejection only after confirming the workdir is usable. `ENOENT` or
+   * `EACCES` identifies the runner when `error.path` equals argv[0] and
+   * `error.syscall` is `spawn` or `spawn <runner>`, or when `error.path` is
+   * absent and `error.syscall` is exactly `spawn <runner>`.
    */
   runnerCommand?: string[]
   /**

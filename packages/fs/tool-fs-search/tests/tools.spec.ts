@@ -644,6 +644,143 @@ describe('raw output acquisition', () => {
   })
 })
 
+describe('partial results on per-file errors', () => {
+  it('exit 2 with streamed matches returns the grep partial result', async () => {
+    // A confined search reports a permission error per read-denied file while
+    // the remaining files still stream their matches.
+    const { ctx, subprocess } = await setup()
+    const begin = JSON.stringify({ type: 'begin', data: { path: { text: w('a.ts') } } })
+    subprocess.handler = () => runResult(`${begin}\n${matchLine(w('a.ts'), 1, 'x')}\n`, {
+      exitCode: 2,
+      stderr: { text: 'rg: Secret.yaml: Permission denied (os error 13)' },
+    })
+    const result = await call(ctx, 'grep', { pattern: 'x' })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('a.ts')
+    expect(text(result)).toContain('Line 1: x')
+  })
+
+  it('exit 2 with streamed paths returns the glob partial result', async () => {
+    const { ctx, subprocess } = await setup()
+    subprocess.handler = () => runResult('a.ts\n', {
+      exitCode: 2,
+      stderr: { text: 'rg: Secret.yaml: Permission denied (os error 13)' },
+    })
+    const result = await call(ctx, 'glob', { pattern: '*' })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('a.ts')
+  })
+
+  it('exit 2 with empty stdout keeps the failure classification', async () => {
+    const { ctx, subprocess } = await setup()
+    subprocess.handler = () => runResult('', { exitCode: 2, stderr: { text: 'rg: Secret.yaml: Permission denied (os error 13)' } })
+    const result = await call(ctx, 'grep', { pattern: 'x' })
+    expect(result.isError).toBe(true)
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
+  })
+})
+
+describe('sandbox confinement of the ripgrep spawn', () => {
+  const MARKER = 'confined-by-test'
+  interface ConfineCall { argv: readonly string[]; policy: { mode: string }; signal?: AbortSignal }
+  const provideSandbox = (ctx: Context, implementation?: (call: ConfineCall) => readonly string[]): ConfineCall[] => {
+    const calls: ConfineCall[] = []
+    ctx.provide('sandbox', {
+      confine: (argv: readonly string[], policy: { mode: string }, signal?: AbortSignal) => {
+        const call: ConfineCall = { argv, policy, ...signal !== undefined ? { signal } : {} }
+        calls.push(call)
+        return Promise.resolve({
+          argv: implementation?.(call) ?? [MARKER, '--', ...argv],
+          enforcement: 'full',
+          denialSignatures: [],
+          runnerFailureRules: [],
+        })
+      },
+    })
+    return calls
+  }
+  const providePolicy = (ctx: Context, mode: string) => {
+    ctx.provide('sandboxPolicy', {
+      resolve: () => ({ mode, workspaceRoot: '/ws' }),
+      readDenialCheck: () => () => false,
+    })
+  }
+
+  it('wraps the grep argv through ctx.sandbox under the resolved per-call policy', async () => {
+    const { ctx, subprocess } = await setup()
+    const calls = provideSandbox(ctx)
+    providePolicy(ctx, 'workspace-write')
+    subprocess.handler = () => runResult(`${matchLine(w('a.ts'), 1, 'x')}\n`)
+    const result = await call(ctx, 'grep', { pattern: 'x' })
+    expect(result.isError).toBe(false)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.policy).toEqual({ mode: 'workspace-write', workspaceRoot: '/ws' })
+    expect(calls[0]!.argv).toEqual([rgPath, '--no-config', '--json', '--regexp=x'])
+    expect(calls[0]!.signal).toBeDefined()
+    expect(subprocess.spawns[0]!.argv).toEqual([MARKER, '--', rgPath, '--no-config', '--json', '--regexp=x'])
+
+    // glob keeps its plain spawn: path-only discovery is not confined.
+    subprocess.handler = () => runResult('a.ts\n')
+    const glob = await call(ctx, 'glob', { pattern: '*' })
+    expect(glob.isError).toBe(false)
+    expect(calls).toHaveLength(1)
+    expect(subprocess.spawns[1]!.argv[0]).toBe(rgPath)
+    expect(subprocess.spawns[1]!.argv[1]).toBe('--no-config')
+  })
+
+  it('runs unconfined under danger-full-access', async () => {
+    const { ctx, subprocess } = await setup()
+    const calls = provideSandbox(ctx)
+    providePolicy(ctx, 'danger-full-access')
+    const result = await call(ctx, 'grep', { pattern: 'x' })
+    expect(result.isError).toBe(false)
+    expect(calls).toHaveLength(0)
+    expect(subprocess.spawns[0]!.argv[0]).toBe(rgPath)
+  })
+
+  it('runs unconfined without a sandbox provider', async () => {
+    const { ctx, subprocess } = await setup()
+    providePolicy(ctx, 'workspace-write')
+    const result = await call(ctx, 'grep', { pattern: 'x' })
+    expect(result.isError).toBe(false)
+    expect(subprocess.spawns[0]!.argv[0]).toBe(rgPath)
+  })
+
+  it('runs unconfined without the policy service', async () => {
+    const { ctx, subprocess } = await setup()
+    const calls = provideSandbox(ctx)
+    const result = await call(ctx, 'grep', { pattern: 'x' })
+    expect(result.isError).toBe(false)
+    expect(calls).toHaveLength(0)
+    expect(subprocess.spawns[0]!.argv[0]).toBe(rgPath)
+  })
+
+  it('fails the search without spawning when confinement refuses', async () => {
+    const { ctx, subprocess } = await setup()
+    provideSandbox(ctx, () => { throw new Error('no usable runner') })
+    providePolicy(ctx, 'read-only')
+    const result = await call(ctx, 'grep', { pattern: 'x' })
+    expect(result.isError).toBe(true)
+    expect(result.error).toMatchObject({ info: { name: 'SearchError', code: 'SEARCH_FAILED' } })
+    expect(text(result)).toContain('could not confine')
+    expect(subprocess.spawns).toHaveLength(0)
+  })
+
+  it('reports SEARCH_ABORTED when the signal aborts during confinement', async () => {
+    const { ctx, subprocess } = await setup()
+    const controller = new AbortController()
+    provideSandbox(ctx, () => {
+      controller.abort()
+      throw new Error('cancel pending confinement')
+    })
+    providePolicy(ctx, 'read-only')
+    const result = await call(ctx, 'grep', { pattern: 'x' }, { signal: controller.signal })
+    expect(result.isError).toBe(true)
+    expect(result.error).toMatchObject({ info: { name: 'SearchError', code: 'SEARCH_ABORTED' } })
+    expect(subprocess.spawns).toHaveLength(0)
+  })
+})
+
 describe('cross-directory sampling', () => {
   it('gives every top-level entry a slot before any entry gets a second', () => {
     const paths = ['v/a', 'v/b', 'v/c', 'v/d', 'src/e', 'guide/f'].map(w)

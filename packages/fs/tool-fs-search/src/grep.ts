@@ -1,12 +1,15 @@
 /**
  * The model-facing `grep` tool: search file contents with a ripgrep regular
  * expression. Execution spawns the packaged ripgrep binary
- * (`@vscode/ripgrep`) directly through the subprocess seam with a plain argv
- * vector using a fixed line-oriented `rg --json` command so file path, line
- * number, and line text parse without colon-splitting ambiguity — this module
- * owns the model-facing schema, argument validation, argv construction,
- * `--json` record parsing, per-line preview retention, match retention,
- * grouping, and formatting; process concerns stay behind `ctx.subprocess`.
+ * (`@vscode/ripgrep`) through the subprocess seam — wrapped through
+ * `ctx.sandbox` when a provider is mounted and the calling session is
+ * confined, so kernel policy (not only the tool's own checks) blocks excluded
+ * reads — with a plain argv vector using a fixed line-oriented `rg --json`
+ * command so file path, line number, and line text parse without
+ * colon-splitting ambiguity — this module owns the model-facing schema,
+ * argument validation, argv construction, `--json` record parsing, per-line
+ * preview retention, match retention, grouping, and formatting; process
+ * concerns stay behind `ctx.subprocess`.
  *
  * @module @deepseek-ai/dsh-tool-fs-search/grep
  */
@@ -17,7 +20,7 @@ import type { GenericCallView, SearchResultView, ToolResult } from '@deepseek-ai
 import type { RetainedItems } from '@deepseek-ai/dsh-output-retention'
 import type { SpillRef } from '@deepseek-ai/dsh-spill'
 import type { GrepMatch } from './search-core.ts'
-import { SearchError, previewLine, retainGrepMatches, runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
+import { SearchError, previewLine, retainGrepMatches, runRipgrep, searchWorkdir, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
 import { grepSearchMeta, searchViewFromMeta } from './presentation.ts'
 import { acceptedDirectCallValue } from './direct-call.ts'
 import { absoluteSearchPath } from './paths.ts'
@@ -322,16 +325,24 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
     async execute(args, exec) {
       const input = parseGrepArgs(args)
       const isDenied = ctx.get('sandboxPolicy')?.readDenialCheck({ session: exec.agent?.session })
-      const workdir = exec.agent?.session.header.cwd ?? process.cwd()
-      if (input.path !== undefined && isDenied?.(absoluteSearchPath(input.path, workdir))) {
+      if (input.path !== undefined && isDenied?.(absoluteSearchPath(input.path, searchWorkdir(exec)))) {
         throw new SearchError(`grep cannot read "${input.path}": file access denied`, 'SEARCH_FAILED')
       }
-      const run = await runRipgrep(ctx, exec, 'grep', buildGrepCommand(input), caps.rawOutputMaxBytes, caps.graceMs, caps.stderrMaxBytes)
+      const run = await runRipgrep(ctx, exec, 'grep', buildGrepCommand(input), caps.rawOutputMaxBytes, caps.graceMs, caps.stderrMaxBytes, true)
       if (run.noMatches) return { matches: [] }
 
+      const denied = new Map<string, boolean>()
       const all: GrepMatch[] = []
       for (const raw of parseGrepMatches(run.stdout)) {
-        if (isDenied?.(absoluteSearchPath(raw.path, run.workdir))) continue
+        // One identity check per reported file: a match list clusters by path,
+        // so caching keeps repeated realpath/stat probes off the same file.
+        let skip = denied.get(raw.path)
+        if (skip === undefined) {
+          // `isDenied` is a name-looked-up optional service: untyped here, boolean by contract.
+          skip = Boolean(isDenied?.(absoluteSearchPath(raw.path, run.workdir)))
+          denied.set(raw.path, skip)
+        }
+        if (skip) continue
         const match: GrepMatch = {
           path: toWorkdirRelative(raw.path, run.workdir),
           lineNumber: raw.lineNumber,

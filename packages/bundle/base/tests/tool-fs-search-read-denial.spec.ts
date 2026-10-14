@@ -8,7 +8,6 @@ import SandboxPolicyService, { setSandboxMode } from '@deepseek-ai/dsh-sandbox-p
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
-import type { SaveTextSpill } from '@deepseek-ai/dsh-spill'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
 import { linkSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -31,7 +30,7 @@ async function setup(mode: 'read-only' | 'workspace-write' | 'danger-full-access
   ctx.provide('credentials', { agentDeniedReadPaths: [file] })
   const spilled: string[] = []
   ctx.provide('spillStore', {
-    saveText: async (request: SaveTextSpill) => { spilled.push(request.content); throw new Error('fixture spill unavailable') },
+    saveText: async (request: { content: string }) => { spilled.push(request.content); throw new Error('fixture spill unavailable') },
   })
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
@@ -145,5 +144,39 @@ describe('grep read exclusions', () => {
     expect(result.isError).toBe(false)
     expect(JSON.stringify(result)).toContain('Secret.yaml')
     expect(JSON.stringify(result)).not.toContain('secret-line')
+  })
+
+  it('confines the ripgrep spawn under the calling session policy when a sandbox provider is mounted', async () => {
+    const test = await setup('workspace-write')
+    const confined: { argv: readonly string[]; policy: { mode: string; workspaceRoot: string } }[] = []
+    test.ctx.provide('sandbox', {
+      confine: (argv: readonly string[], policy: { mode: string; workspaceRoot: string }) => {
+        confined.push({ argv, policy })
+        return Promise.resolve({ argv: [...argv], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] })
+      },
+    })
+    const result = await test.grep('public.txt')
+    expect(result.isError).toBe(false)
+    expect(confined).toHaveLength(1)
+    // The policy is the same per-call resolution the bash tool would use.
+    expect(confined[0]!.policy).toMatchObject({
+      mode: 'workspace-write',
+      workspaceRoot: test.workdir,
+      deniedReadPaths: [test.extra],
+    })
+  })
+
+  it('skips confinement under a danger-full-access session override', async () => {
+    const test = await setup('workspace-write')
+    const confined: unknown[] = []
+    test.ctx.provide('sandbox', {
+      confine: (argv: readonly string[]) => {
+        confined.push(argv)
+        return Promise.resolve({ argv: [...argv], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] })
+      },
+    })
+    setSandboxMode(test.session, 'danger-full-access')
+    expect((await test.grep('public.txt')).isError).toBe(false)
+    expect(confined).toHaveLength(0)
   })
 })
