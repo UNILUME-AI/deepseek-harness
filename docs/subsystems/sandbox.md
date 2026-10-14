@@ -210,6 +210,13 @@ The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mo
 resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy
 
 /**
+ * Resolve local read exclusions once for a tool call, then check each absolute filename by path and device/inode.
+ * @param request - optional calling session and approved mode override.
+ * @returns a predicate that rejects protected files; full-access calls always return false, filesystem errors propagate.
+ */
+readDenialCheck(request: SandboxPolicyRequest = {}): (path: string) => boolean
+
+/**
  * Read the session override without applying the deployment default.
  * @param session - session whose log supplies the override.
  * @returns the last logged mode, or `undefined` without one.

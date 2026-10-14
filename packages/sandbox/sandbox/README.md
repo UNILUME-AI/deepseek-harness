@@ -59,7 +59,7 @@ The mode names the file effects a command may perform; enforcement completeness 
 | `workspace-write` | Allows writes under the workspace root plus a backend-defined temp area |
 | `danger-full-access` | Bypasses confinement; the consumer spawns its original argv |
 
-Enforcement is reported per call: `full` governs every promised file effect; `partial` covers a subset. Nonempty read exclusions make local backends conservatively report `partial`; see [backend limits](../sandbox-local/README.md#known-limitations-and-deferred-work). Windows ACL and older Landlock ABIs also have write-policy gaps.
+Enforcement is reported per call: `full` governs every promised file effect; `partial` covers a subset. Read exclusions preserve Seatbelt and bwrap judgments; Landlock reports `partial` with exclusions and Windows ACL remains `partial`; see [backend limits](../sandbox-local/README.md#known-limitations-and-deferred-work). Windows ACL and older Landlock ABIs also have write-policy gaps.
 
 ### Denied calls and escalation
 

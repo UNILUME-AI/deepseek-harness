@@ -20,11 +20,13 @@
  * @module @deepseek-ai/dsh-sandbox-policy
  */
 
+import { statSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { z as zod } from 'zod'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-agent'
+import { deniedReadPaths, isReadDenied } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection'
@@ -76,7 +78,7 @@ export interface Config {
    * `process.cwd()`). Normal agent calls use their session cwd instead.
    */
   workspaceRoot?: string
-  /** Additional absolute host file paths denied in confined modes; does not replace credential-provider paths. */
+  /** Additional absolute host filenames denied in confined modes; directories fail at load, absent files are accepted. */
   deniedReadPaths?: string[]
 }
 
@@ -135,6 +137,9 @@ export class SandboxPolicyService extends Service {
     this.workspaceRoot = resolveWorkspaceRoot(config.workspaceRoot ?? process.cwd())
     this.deniedReadPaths = (config.deniedReadPaths ?? []).map((path) => {
       if (!isAbsolute(path)) throw new Error('sandbox-policy: denied read paths must be absolute host paths')
+      if (statSync(path, { throwIfNoEntry: false })?.isDirectory()) {
+        throw new Error(`sandbox-policy: deniedReadPaths entry "${path}" is a directory; provide a file path`)
+      }
       return path
     })
 
@@ -177,6 +182,16 @@ export class SandboxPolicyService extends Service {
       ...this.deniedReadPaths.length === 0 ? {} : { deniedReadPaths: this.deniedReadPaths },
       ...session === undefined ? {} : { sessionId: session.id },
     }
+  }
+
+  /**
+   * Resolve local read exclusions once for a tool call, then check each absolute filename by path and device/inode.
+   * @param request - optional calling session and approved mode override.
+   * @returns a predicate that rejects protected files; full-access calls always return false, filesystem errors propagate.
+   */
+  readDenialCheck(request: SandboxPolicyRequest = {}): (path: string) => boolean {
+    const denied = deniedReadPaths(this.ctx, this.resolve(request))
+    return path => isReadDenied(path, denied)
   }
 
   /**

@@ -95,6 +95,8 @@ describe('shared read exclusions', () => {
       for (const platform of ['linux', 'win32']) {
         Object.defineProperty(process, 'platform', { ...descriptor, value: platform })
         expect(isReadDenied(file, [canonical])).toBe(true)
+        // Missing leaves avoid the host filesystem folding case before the platform comparison.
+        expect(isReadDenied(join(canonical, 'Missing'), [join(canonical, 'missing')])).toBe(platform === 'win32')
       }
     } finally {
       Object.defineProperty(process, 'platform', descriptor)

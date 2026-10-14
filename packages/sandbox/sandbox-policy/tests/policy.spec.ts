@@ -4,7 +4,7 @@
  * override kit (fold + write path) every enforcing capability reads.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -252,6 +252,33 @@ describe('the sandbox/mode session kit', () => {
 
 
 describe('additional host read exclusions', () => {
+  it('accepts an existing ordinary file and an absent file at load', async ({ onTestFinished }) => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-policy-denied-file-'))
+    onTestFinished(() => { rmSync(root, { recursive: true, force: true }) })
+    const file = join(root, 'secret.yaml')
+    writeFileSync(file, 'fixture secret')
+    const ctx = new Context()
+    onTestFinished(async () => { await ctx.fiber.dispose() })
+    await ctx.plugin(SessionProjectionRegistry)
+    const paths = [file, join(root, 'absent.yaml')]
+    await ctx.plugin(SandboxPolicyService, { deniedReadPaths: paths })
+    expect(ctx.sandboxPolicy.resolve().deniedReadPaths).toEqual(paths)
+    const isDenied = ctx.sandboxPolicy.readDenialCheck()
+    expect(isDenied(file)).toBe(true)
+    expect(isDenied(join(root, 'public.txt'))).toBe(false)
+    expect(ctx.sandboxPolicy.readDenialCheck({ mode: 'danger-full-access' })(file)).toBe(false)
+  })
+
+  it('rejects an existing directory with its configured path at load', async ({ onTestFinished }) => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-policy-denied-directory-'))
+    onTestFinished(() => { rmSync(root, { recursive: true, force: true }) })
+    const ctx = new Context()
+    onTestFinished(async () => { await ctx.fiber.dispose() })
+    await ctx.plugin(SessionProjectionRegistry)
+    await expect(ctx.plugin(SandboxPolicyService, { deniedReadPaths: [root] }))
+      .rejects.toThrow(`sandbox-policy: deniedReadPaths entry "${root}" is a directory; provide a file path`)
+  })
+
   it('carries additions through per-call resolution without changing the mode', async () => {
     const ctx = new Context()
     try {
@@ -273,16 +300,15 @@ describe('additional host read exclusions', () => {
       await ctx.fiber.dispose()
     }
   })
-})
 
-
-it('resolves absent additions during direct programmatic construction', async () => {
-  const ctx = new Context()
-  try {
-    await ctx.plugin(SessionProjectionRegistry)
-    const policy = new SandboxPolicyService(ctx, { mode: 'read-only' })
-    expect(policy.resolve().deniedReadPaths).toBeUndefined()
-  } finally {
-    await ctx.fiber.dispose()
-  }
+  it('resolves absent additions during direct programmatic construction', async () => {
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SessionProjectionRegistry)
+      const policy = new SandboxPolicyService(ctx, { mode: 'read-only' })
+      expect(policy.resolve().deniedReadPaths).toBeUndefined()
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
 })

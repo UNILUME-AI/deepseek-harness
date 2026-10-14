@@ -31,6 +31,22 @@ async function setup() {
 }
 
 describe('SSH filesystem provider', () => {
+  it('omits host-only read exclusions from full-access write and edit requests', async () => {
+    const { fs, dispatch } = await setup()
+    const localPolicy: SandboxExecutionPolicy = {
+      mode: 'danger-full-access', workspaceRoot: '/remote/work', deniedReadPaths: ['/host/secret.yaml'],
+    }
+    const remotePolicy = { mode: 'danger-full-access', workspaceRoot: '/remote/work' }
+    dispatch.mockResolvedValueOnce({ operation: 'create', version: 'v1', before: null, after: 'new' })
+      .mockResolvedValueOnce({ version: 'v2', before: 'new', after: 'next' })
+    await fs.writeText(target, 'new', undefined, undefined, localPolicy)
+    await fs.editText(target, { oldString: 'new', newString: 'next', replaceAll: false }, undefined, undefined, localPolicy)
+    for (const [, params] of dispatch.mock.calls) {
+      expect((params as { policy: SandboxExecutionPolicy }).policy).toEqual(remotePolicy)
+    }
+    expect(localPolicy.deniedReadPaths).toEqual(['/host/secret.yaml'])
+  })
+
   it('declares watching unsupported without sending a remote request', async () => {
     const { fs, dispatch } = await setup()
     await expect(fs.watch(target, vi.fn(), new AbortController().signal))

@@ -82,7 +82,7 @@ export class SshFileSystem extends FileSystem {
   override async writeText(
     target: FsTarget, content: string, expected?: FsWriteIntent, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy,
   ): Promise<FsWriteOutcome> {
-    const policy = sandboxPolicy ?? this.ctx.sandboxPolicy.resolve()
+    const { deniedReadPaths: _hostDeniedReadPaths, ...policy } = sandboxPolicy ?? this.ctx.sandboxPolicy.resolve()
     return await this.call('fs.write', { target, content, expected, policy }, writeResultSchema, signal) as FsWriteOutcome
   }
 
@@ -90,7 +90,7 @@ export class SshFileSystem extends FileSystem {
     target: FsTarget, edit: FsEditRequest, expected?: { version: FsVersion },
     signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy,
   ): Promise<FsEditOutcome> {
-    const policy = sandboxPolicy ?? this.ctx.sandboxPolicy.resolve()
+    const { deniedReadPaths: _hostDeniedReadPaths, ...policy } = sandboxPolicy ?? this.ctx.sandboxPolicy.resolve()
     return await this.call('fs.edit', { target, edit, expected, policy }, editResultSchema, signal) as FsEditOutcome
   }
 

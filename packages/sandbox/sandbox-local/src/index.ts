@@ -46,7 +46,7 @@ export interface Config {
   /**
    * Override the runner argv; bwrap-compatible profile arguments are appended. A
    * non-empty override skips built-in selection and probing, asserting full write
-   * enforcement; nonempty read exclusions still report partial. A runner that
+   * enforcement. A runner that
    * starts but refuses its profile must be identifiable by
    * {@link runnerFailureSignatures}. Consumers classify a spawn rejection only after
    * confirming the workdir is usable. `ENOENT` or `EACCES` identifies the runner when
@@ -330,7 +330,7 @@ export class LocalSandboxProvider extends SandboxProvider {
     if (this.runnerCommand !== undefined) {
       return Promise.resolve<ConfinedArgv>({
         argv: [...this.runnerCommand, ...bwrapProfileArgs(policy, denied), '--', ...argv],
-        enforcement: denied.length === 0 ? 'full' : 'partial',
+        enforcement: 'full',
         denialSignatures: DENIAL_SIGNATURES.runnerCommand,
         runnerFailureRules: [{ fatalSignatures: this.configuredRunnerFailureSignatures }],
       })
@@ -339,7 +339,7 @@ export class LocalSandboxProvider extends SandboxProvider {
     const runnerArgv = this.runnerArgv(selected.runner, policy, denied)
     return Promise.resolve<ConfinedArgv>({
       argv: [...runnerArgv, '--', ...argv],
-      enforcement: denied.length === 0 ? selected.enforcement : 'partial',
+      enforcement: denied.length > 0 && selected.runner === 'landlock' ? 'partial' : selected.enforcement,
       denialSignatures: DENIAL_SIGNATURES[selected.runner],
       runnerFailureRules: RUNNER_FAILURE_RULES[selected.runner],
     })

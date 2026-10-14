@@ -31,7 +31,16 @@ describe('read-denial profiles', () => {
       .toContain('(literal "a\\"b\\\\c")')
   })
 
-  it.each(['bwrap', 'landlock', 'seatbelt', 'windows-acl'] as const)('uses provider files for %s and reports read exclusion gaps as partial', async (runner) => {
+  it('denies mutation of a protected workspace file after granting ordinary workspace writes', ({ onTestFinished }) => {
+    const { root, canonical } = fixture(onTestFinished)
+    const profile = seatbeltProfileArgs({ mode: 'workspace-write', workspaceRoot: root }, [canonical])[1]!
+    const deny = `(deny file-write* (literal "${canonical}"))`
+    expect(profile).toContain(deny)
+    expect(profile.indexOf(deny)).toBeGreaterThan(profile.lastIndexOf('(allow file-write*'))
+    expect(profile).toContain(`(subpath "${realpathSync.native(root)}")`)
+  })
+
+  it.each(['bwrap', 'landlock', 'seatbelt', 'windows-acl'] as const)('uses provider files for %s and preserves its enforcement judgment', async (runner) => {
     const { root, file, canonical } = fixture(onTestFinished)
     const ctx = new Context()
     onTestFinished(async () => { await ctx.fiber.dispose() })
@@ -41,7 +50,7 @@ describe('read-denial profiles', () => {
     sandbox.internals = { chain: [runner], windowsAclRunnerArgs: ['fake-acl'] }
     const confined = await sandbox.confine(['cat', file], { mode: 'read-only', workspaceRoot: root })
     const profile = confined.argv.slice(0, confined.argv.indexOf('--'))
-    expect(confined.enforcement).toBe('partial')
+    expect(confined.enforcement).toBe(runner === 'landlock' || runner === 'windows-acl' ? 'partial' : 'full')
     if (runner === 'bwrap') expect(profile).toContain(canonical)
     if (runner === 'seatbelt') expect(confined.argv[2]).toContain(`(deny file-read* (literal "${canonical}"))`)
     if (runner === 'landlock') expect(profile).not.toContain(canonical)
@@ -55,7 +64,7 @@ describe('read-denial profiles', () => {
     try {
       const confined = await ctx.sandbox.confine(['cat', file], { mode: 'workspace-write', workspaceRoot: root, deniedReadPaths: [file] })
       expect(confined.argv).toContain(canonical)
-      expect(confined.enforcement).toBe('partial')
+      expect(confined.enforcement).toBe('full')
     } finally {
       await ctx.fiber.dispose()
     }
