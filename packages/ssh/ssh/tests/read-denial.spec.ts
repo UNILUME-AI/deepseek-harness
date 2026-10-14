@@ -3,13 +3,13 @@ import { Context } from '@deepseek-ai/cordis'
 import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
+import { SshFileSystem } from '@deepseek-ai/dsh-fs-ssh'
+import { SshSandboxProvider } from '@deepseek-ai/dsh-sandbox-ssh'
 import { spawnSync } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { SshFileSystem } from '../src/index.ts'
-import { SshSandboxProvider } from '../../sandbox-ssh/src/index.ts'
-import { createHelperHarness } from '../../ssh/tests/fixtures/helper.ts'
+import { createHelperHarness } from './fixtures/helper.ts'
 
 describe.skipIf(process.platform === 'win32')('SSH policies with host-only read exclusions', () => {
   it('executes confined commands and full-access mutations through the strict helper protocol', async ({ onTestFinished }) => {

@@ -1,10 +1,26 @@
 import { Context } from '@deepseek-ai/cordis'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 import { bwrapProfileArgs, landlockProfileArgs, seatbeltProfileArgs } from '../src/profiles.ts'
+
+/** The SBPL string-literal spelling of a path, mirroring the profile builder's quoting. */
+function sbpl(path: string): string {
+  return `"${path.replaceAll('\\', String.raw`\\`).replaceAll('"', String.raw`\"`)}"`
+}
+
+/** Every ancestor directory of a path, nearest first, up to and including the filesystem root. */
+function ancestors(path: string): string[] {
+  const dirs: string[] = []
+  let dir = dirname(path)
+  while (!dirs.includes(dir)) {
+    dirs.push(dir)
+    dir = dirname(dir)
+  }
+  return dirs
+}
 
 function fixture(onTestFinished: (cleanup: () => void) => void) {
   const root = mkdtempSync(join(tmpdir(), 'dsh-profile-read-denial-'))
@@ -38,6 +54,18 @@ describe('read-denial profiles', () => {
     expect(profile).toContain(deny)
     expect(profile.indexOf(deny)).toBeGreaterThan(profile.lastIndexOf('(allow file-write*'))
     expect(profile).toContain(`(subpath "${realpathSync.native(root)}")`)
+  })
+
+  it('denies writes to every ancestor directory of a protected file after the writable-root grants', ({ onTestFinished }) => {
+    const { root, canonical } = fixture(onTestFinished)
+    const sibling = join(root, 'second.yaml')
+    writeFileSync(sibling, 'test secret', { mode: 0o600 })
+    const profile = seatbeltProfileArgs({ mode: 'workspace-write', workspaceRoot: root }, [canonical, realpathSync.native(sibling)])[1]!
+    const deny = `(deny file-write* ${ancestors(canonical).map(dir => `(literal ${sbpl(dir)})`).join(' ')})`
+    expect(profile).toContain(deny)
+    expect(profile.indexOf(deny)).toBeGreaterThan(profile.lastIndexOf('(allow file-write*'))
+    // Two protected files in one directory share a single deduplicated ancestor list.
+    expect(profile.split(`(literal ${sbpl(dirname(canonical))})`)).toHaveLength(2)
   })
 
   it.each(['bwrap', 'landlock', 'seatbelt', 'windows-acl'] as const)('uses provider files for %s and preserves its enforcement judgment', async (runner) => {

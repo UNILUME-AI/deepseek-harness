@@ -125,7 +125,6 @@ These limits define when the sandbox backend is a poor fit or needs special oper
 - **A policy fence, not a kernel boundary** — the check is trusted code over a model-controlled path, so the residual resolve-to-syscall TOCTOU is narrowed (by the in-place re-canonicalization) but not eliminated; adversarial host processes are out of scope. Kernel-grade isolation of untrusted code stays `ctx.shell`'s.
 - **Fence-vs-runner parity is derived from one owner** — the writable set comes from `writableRoots`, shared with the Seatbelt profile; a runner profile that defines its writable set elsewhere would drift.
 - **Requires `ctx.sandboxPolicy`** — tools use it to resolve each session policy and the backend uses it for agentless-call fallbacks; the backend does not confine without it composed.
-
 - **Known read limits** — concurrent replacement between checking and opening remains a race; an already-open stream is not revoked on credential changes. Inode matching covers the current file; a stale hard-link copy left by atomic credential replacement cannot be identified from the current filename. macOS and Windows path comparison conservatively ignores case, potentially denying distinct files on case-sensitive volumes. `danger-full-access` bypasses the fence.
 
 <a id="dev-note"></a>
