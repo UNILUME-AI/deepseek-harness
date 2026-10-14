@@ -76,7 +76,7 @@ Node deployments receive the `@vscode/ripgrep` platform package on supported mac
 
 ### Failures and recovery
 
-Search failures carry the package-owned codes `SEARCH_INVALID_PATTERN` (ripgrep rejected the regex or glob), `SEARCH_FAILED` (a failed launch, inaccessible target, signal kill, or malformed `--json` output), `SEARCH_RAW_OUTPUT_OVERFLOW` (raw output over the cap), and `SEARCH_ABORTED` (cooperative timeout or caller cancellation). Exit 0 is success with results and exit 1 is a successful empty search. Only a `grep` actually run through the sandbox accepts exit 2 when complete stderr contains only ripgrep permission errors: remaining matches are returned, or an empty result when none remain. Unconfined `grep`, `glob`, mixed errors and sandbox runner failures return `SEARCH_FAILED`; model argument mistakes stay ordinary tool argument errors.
+Search failures carry the package-owned codes `SEARCH_INVALID_PATTERN` (ripgrep rejected the regex or glob), `SEARCH_FAILED` (a failed launch, inaccessible target, signal kill, or malformed `--json` output), `SEARCH_RAW_OUTPUT_OVERFLOW` (raw output over the cap), and `SEARCH_ABORTED` (cooperative timeout or caller cancellation). Exit 0 is success with results and exit 1 is a successful empty search. Only a `grep` actually run through the sandbox accepts exit 2 when complete stderr contains only ripgrep permission errors: remaining matches are returned, or an empty result when none remain. This also applies when an explicit `path` is itself unreadable, which then reads as no matches. Unconfined `grep`, `glob`, mixed errors and sandbox runner failures return `SEARCH_FAILED`; model argument mistakes stay ordinary tool argument errors.
 
 -----
 

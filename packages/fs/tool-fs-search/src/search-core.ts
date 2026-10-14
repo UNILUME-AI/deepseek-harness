@@ -108,7 +108,10 @@ interface SearchConfinement {
   }[]
 }
 
-/** Runner executable evidence, independently excluding an unusable caller cwd. */
+/**
+ * Runner executable evidence, independently excluding an unusable caller cwd.
+ * Mirrors `isRunnerSpawnFailure` in `@deepseek-ai/dsh-sandbox`; keep the two in step.
+ */
 function runnerSpawnFailure(error: unknown, runner: string | undefined, workdir: string): boolean {
   if (runner === undefined) return false
   try {
@@ -126,7 +129,10 @@ function runnerSpawnFailure(error: unknown, runner: string | undefined, workdir:
   return path === runner && (syscall === 'spawn' || syscall === `spawn ${runner}`)
 }
 
-/** Fatal runner rules use exit gates and exact informational-line exclusions. */
+/**
+ * Fatal runner rules use exit gates and exact informational-line exclusions.
+ * Mirrors `classifyRunnerFailure` in `@deepseek-ai/dsh-sandbox`; keep the two in step.
+ */
 function runnerFailure(exitCode: number, stderr: string, confined: SearchConfinement): string | undefined {
   if (exitCode === 0) return undefined
   for (const rule of confined.runnerFailureRules) {
