@@ -1851,6 +1851,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the fully resolved per-call mode and absolute workspace root.',
       },
       {
+        signature: 'readDenialCheck(request: SandboxPolicyRequest = {}): (path: string) => boolean',
+        description: 'Resolve local read exclusions once for a tool call, then check each absolute filename by path and device/inode.',
+        parameters: [{ name: 'request', description: 'optional calling session and approved mode override.' }],
+        returns: 'a predicate that rejects protected files; full-access calls always return false, filesystem errors propagate.',
+      },
+      {
         signature: 'overrideOf(session: Session): SandboxMode | undefined',
         description: 'Read the session override without applying the deployment default.',
         parameters: [{ name: 'session', description: 'session whose log supplies the override.' }],

@@ -46,8 +46,7 @@ kind: "package-reference"
 |---|---|---|
 | `mode` | `read-only` | 会话起始的部署默认模式，加载时验证 |
 | `workspaceRoot` | `process.cwd()` | 无 agent 调用或没有 cwd 的会话所用的绝对回退根目录；相对值在加载时拒绝。普通 agent 调用使用会话的不可变 cwd |
-
-| `deniedReadPaths` | 空 | 附加绝对宿主文件路径；受限本地后端将其与凭据提供方的名单合并，相对路径在加载时拒绝 |
+| `deniedReadPaths` | 空 | 附加绝对宿主文件路径；受限本地后端将其与凭据提供方的名单合并，相对路径和已存在目录在加载时拒绝；允许尚不存在的文件 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-sandbox-policy)是每个受支持字段及其 JSDoc 的穷尽式真源。
 
@@ -72,6 +71,8 @@ kind: "package-reference"
 ### 解析优先级
 
 `resolve({ session, mode })` 返回一份完整的逐调用策略：已批准的显式模式优先于会话最后一条 `sandbox/mode` 事件，后者又优先于部署默认值。会话的不可变 `cwd` 提供工作区根目录；否则使用配置的回退值。执行环境中的绝对路径写法保持不变。执行限制的提供方在自己的文件系统上规范化根目录，因此远端 `symlink/..` 路径绝不会在 Harness 主机上解析。
+
+`readDenialCheck(request)` 解析调用会话的策略，并通过共享 `deniedReadPaths(ctx, policy)` 与 `isReadDenied` 返回接受绝对路径的判断函数。本地内容搜索工具在启动显式文件搜索前及保留每条匹配前调用它。完全权限下判断恒为 false。SSH 提供方在发送前去掉宿主专用禁读名单。
 
 ### 逐会话存储
 

@@ -48,6 +48,8 @@ kind: "package-reference"
 | `glob` | `pattern`、`path?` | 查找路径匹配 glob 模式的文件，包含隐藏与忽略文件但排除 VCS 元数据；不含 `/` 的模式匹配任意深度的基名，因此 `*` 匹配整棵树；完整结果保持按修改时间排序 |
 | `grep` | `pattern`、`path?`、`include?` | 用 ripgrep 正则搜索文件内容，并按文件分组返回 `Line N: <preview>` 匹配；`include` 是一个正向 glob 过滤器，逗号分隔列表与否定值会被前置拒绝 |
 
+挂载 `sandboxPolicy` 时，受限 `grep` 调用使用其 `readDenialCheck` 判断函数：显式受保护路径在 spawn 前以 `SEARCH_FAILED` 拒绝，目录搜索中的受保护匹配在进入结果值、元数据和格式化 spill 前被移除。路径锚定保留依赖符号链接解析的父级组件，包括 Windows 驱动器相对路径，再由共享判断解析并用设备号/inode 识别硬链接。`danger-full-access` 保留普通搜索行为；`glob` 只列路径，行为不变。
+
 常规预算不进入面向模型的 schema：需要周边上下文的模型用 `read` 读取匹配文件，需要后续结果的模型遵循返回的 spill locator 检索提示。
 
 ### 配置
@@ -98,6 +100,7 @@ Node 部署在受支持的 macOS、Linux 与 Windows 目标上获得 `@vscode/ri
 | [`src/glob.ts`](src/glob.ts) | `glob` schema、argv、解析、内联采样、格式化 |
 | [`src/grep.ts`](src/grep.ts) | `grep` schema、argv、`--json` 解析、预览保留、格式化 |
 | [`src/search-core.ts`](src/search-core.ts) | 共享 spawn 助手、`SEARCH_*` 错误、spill 交接、工作目录相对展示 |
+| [`src/paths.ts`](src/paths.ts) | 按搜索根锚定路径，并保留依赖符号链接解析的父级组件 |
 | [`src/presentation.ts`](src/presentation.ts) | 搜索卡片元数据投影 |
 | [`src/direct-call.ts`](src/direct-call.ts) | spill 后处理的直接调用结果接受 |
 
@@ -207,6 +210,7 @@ glob 描述声明了配置的超过上限排序方式。生成的 [`glob` 和 `g
 
 - **搜索与文件访问没有共享工作区证明**——只有当工作目录与文件系统根目录指向同一工作区时，返回路径才可继续读取；本包不执行运行时跨服务校验。
 - **打包二进制固定在依赖版本上**——Node 部署使用 `@vscode/ripgrep` 选择的版本；Python 单文件运行时将对应目标的原生版本复制为必需的 `-rg` 伴随文件。不支持的平台或损坏的安装会以 `SEARCH_FAILED` 使调用失败，Python 运行时包则会在启动前拒绝缺少伴随文件的安装。远程或虚拟文件系统需要共置的工作区或另一个搜索消费方。
+- **本地读取检查并非内核隔离**——ripgrep 仍先读取目录候选再过滤匹配，并发替换路径或 inode 可能与检查竞争。未挂载 `sandboxPolicy` 时不应用禁读策略。
 - **schema 只暴露一个有界页面**——偏移分页、大小写开关、替代输出模式与提供方支撑的发现仍不在本包范围内；达到上限的完整输出需要 spill 后端。
 - **启用采样时仅按搜索根正下方的第一段路径分组**——超过上限的 `glob` 页面在这些顶层条目之间平衡，因此集中在更深处的结果在该层级之下仍会呈现不均；递归平衡被延期。
 

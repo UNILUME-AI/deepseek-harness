@@ -3,6 +3,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import { SandboxUnavailableError, type SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { z } from 'zod'
+import { policySchema } from '@deepseek-ai/dsh-ssh/schemas'
 import { SshSandboxProvider } from '../src/index.ts'
 
 const policy: SandboxPolicy = { mode: 'workspace-write', workspaceRoot: '/remote/link/..' }
@@ -27,6 +28,19 @@ async function setup(raw: unknown = completeFacts) {
 }
 
 describe('SSH sandbox provider', () => {
+  it.each(['read-only', 'workspace-write'] as const)('omits host-only read exclusions from the %s remote policy', async (mode) => {
+    const state = await setup()
+    const localPolicy = { ...policy, mode, deniedReadPaths: ['/host/secret.yaml'] }
+    const argv = ['true']
+    state.dispatch.mockImplementationOnce(async (_method, params) => {
+      expect(policySchema.parse((params as { policy: SandboxPolicy }).policy)).toEqual({ ...policy, mode })
+      return completeFacts
+    })
+    expect(await state.ctx.sandbox.confine(argv, localPolicy)).toEqual(completeFacts)
+    expect(state.dispatch).toHaveBeenCalledWith('sandbox', { argv, policy: { ...policy, mode } }, undefined)
+    expect(localPolicy.deniedReadPaths).toEqual(['/host/secret.yaml'])
+  })
+
   it('awaits remote policy resolution and returns the literal enforcing argv', async () => {
     const state = await setup()
     const result = Promise.withResolvers<typeof completeFacts>()

@@ -20,6 +20,7 @@ import type { GrepMatch } from './search-core.ts'
 import { SearchError, previewLine, retainGrepMatches, runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
 import { grepSearchMeta, searchViewFromMeta } from './presentation.ts'
 import { acceptedDirectCallValue } from './direct-call.ts'
+import { absoluteSearchPath } from './paths.ts'
 
 /**
  * Default cap on flat matches retained inline by one `grep` call (the
@@ -320,11 +321,17 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
     },
     async execute(args, exec) {
       const input = parseGrepArgs(args)
+      const isDenied = ctx.get('sandboxPolicy')?.readDenialCheck({ session: exec.agent?.session })
+      const workdir = exec.agent?.session.header.cwd ?? process.cwd()
+      if (input.path !== undefined && isDenied?.(absoluteSearchPath(input.path, workdir))) {
+        throw new SearchError(`grep cannot read "${input.path}": file access denied`, 'SEARCH_FAILED')
+      }
       const run = await runRipgrep(ctx, exec, 'grep', buildGrepCommand(input), caps.rawOutputMaxBytes, caps.graceMs, caps.stderrMaxBytes)
       if (run.noMatches) return { matches: [] }
 
       const all: GrepMatch[] = []
       for (const raw of parseGrepMatches(run.stdout)) {
+        if (isDenied?.(absoluteSearchPath(raw.path, run.workdir))) continue
         const match: GrepMatch = {
           path: toWorkdirRelative(raw.path, run.workdir),
           lineNumber: raw.lineNumber,

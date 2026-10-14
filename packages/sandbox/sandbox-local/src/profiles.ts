@@ -51,7 +51,7 @@ function sbplString(path: string): string {
  * deduplicated) so the Seatbelt grant and the in-process fs fence
  * (`@deepseek-ai/dsh-fs-sandbox`) can never drift apart.
  * @param policy - file-effect policy to express as an SBPL profile.
- * @param denied - canonical filenames whose data and metadata reads must be denied.
+ * @param denied - canonical filenames whose reads and mutations must be denied, including rename.
  * @returns sandbox-exec arguments before the trailing separator and command argv.
  */
 export function seatbeltProfileArgs(policy: SandboxPolicy, denied: readonly string[] = []): string[] {
@@ -61,7 +61,8 @@ export function seatbeltProfileArgs(policy: SandboxPolicy, denied: readonly stri
     forms.push(`(allow file-write* ${roots.map(root => `(subpath ${sbplString(root)})`).join(' ')})`)
   }
   if (denied.length > 0) {
-    forms.push(`(deny file-read* ${denied.map(path => `(literal ${sbplString(path)})`).join(' ')})`)
+    const files = denied.map(path => `(literal ${sbplString(path)})`).join(' ')
+    forms.push(`(deny file-read* ${files})`, `(deny file-write* ${files})`)
   }
   return ['-p', forms.join(' ')]
 }

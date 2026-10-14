@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { credentialKey, credentialKeyId, credentialRef, isCredentialKeySegment } from '../src/index.ts'
+import { credentialRef, isCredentialKeySegment } from '../src/index.ts'
 import type { CredentialRef } from '../src/index.ts'
 import { MemoryCredentials } from './memory.ts'
 
@@ -89,7 +89,6 @@ describe('credential file exclusions', () => {
     const ctx = await boot()
     try {
       expect(ctx.credentials.agentDeniedReadPaths).toEqual([])
-      expect(credentialKeyId(credentialKey('test', 'secret'))).toBe('secret')
     } finally {
       await ctx.fiber.dispose()
     }

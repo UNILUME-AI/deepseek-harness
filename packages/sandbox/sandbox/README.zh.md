@@ -59,7 +59,7 @@ kind: "package-reference"
 | `workspace-write` | 允许写入工作区根目录及后端定义的临时区域 |
 | `danger-full-access` | 绕过隔离；消费方直接 spawn 原始 argv |
 
-强制执行逐调用报告：`full` 表示后端管辖全部承诺的文件操作，`partial` 表示只覆盖子集。非空禁读名单使本地后端保守报告 `partial`，见[后端边界](../sandbox-local/README.zh.md#known-limitations-and-deferred-work)。Windows ACL 与较旧的 Landlock ABI 的写入策略也可能只部分生效。
+强制执行逐调用报告：`full` 表示后端管辖全部承诺的文件操作，`partial` 表示只覆盖子集。禁读名单不改变 Seatbelt 与 bwrap 的判断；Landlock 在名单非空时报告 `partial`，Windows ACL 保持 `partial`，见[后端边界](../sandbox-local/README.zh.md#known-limitations-and-deferred-work)。Windows ACL 与较旧的 Landlock ABI 的写入策略也可能只部分生效。
 
 ### 被拒绝的调用与升权
 

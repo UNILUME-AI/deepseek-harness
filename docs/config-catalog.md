@@ -1298,7 +1298,7 @@ export interface Config {
 
 - `inject`: `sandboxPolicy`
 - `refs`: [`LocalConfig`](#deepseek-aidsh-fs-local)
-- `source`: [`packages/fs/fs-sandbox/src/index.ts:45`](../packages/fs/fs-sandbox/src/index.ts)
+- `source`: [`packages/fs/fs-sandbox/src/index.ts:44`](../packages/fs/fs-sandbox/src/index.ts)
 
 ```ts config-catalog
 /**
@@ -2560,7 +2560,7 @@ export interface Config {
   /**
    * Override the runner argv; bwrap-compatible profile arguments are appended. A
    * non-empty override skips built-in selection and probing, asserting full write
-   * enforcement; nonempty read exclusions still report partial. A runner that
+   * enforcement. A runner that
    * starts but refuses its profile must be identifiable by
    * {@link runnerFailureSignatures}. Consumers classify a spawn rejection only after
    * confirming the workdir is usable. `ENOENT` or `EACCES` identifies the runner when
@@ -2589,7 +2589,7 @@ export interface Config {
 
 - `inject`: `sessionProjections`
 - `refs`: [`SandboxMode`](subsystems/sandbox.md)
-- `source`: [`packages/sandbox/sandbox-policy/src/index.ts:71`](../packages/sandbox/sandbox-policy/src/index.ts)
+- `source`: [`packages/sandbox/sandbox-policy/src/index.ts:73`](../packages/sandbox/sandbox-policy/src/index.ts)
 
 ```ts config-catalog
 /**
@@ -2607,7 +2607,7 @@ export interface Config {
    * `process.cwd()`). Normal agent calls use their session cwd instead.
    */
   workspaceRoot?: string
-  /** Additional absolute host file paths denied in confined modes; does not replace credential-provider paths. */
+  /** Additional absolute host filenames denied in confined modes; directories fail at load, absent files are accepted. */
   deniedReadPaths?: string[]
 }
 ```

@@ -1200,6 +1200,12 @@ describe('headless recorded-session snapshots', () => {
             if (scenario.name === 'session-query-spill') {
               await verifySessionQuerySpill(actualLogs[0]!.content, spillRoot, locatorRoot)
             }
+            if (scenario.name === 'credential-read-denial') {
+              const log = actualLogs[0]!.content
+              expect(log).toContain('credential_grep')
+              expect(log).toContain('grep cannot read')
+              expect(log).not.toContain('fixture-secret')
+            }
             if (scenario.name === 'mcp-resources' || scenario.name === 'mcp-resources-ptc') {
               verifyMcpResources(actualLogs[0]!.content, scenario.name === 'mcp-resources-ptc')
             }

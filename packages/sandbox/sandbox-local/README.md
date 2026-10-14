@@ -50,7 +50,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 ### Confined execution and enforcement
 
-Commands run under per-call policy. `full` means every promised file effect is governed; `partial` means gaps remain. Every local backend conservatively reports `partial` with nonempty read exclusions: Seatbelt and bwrap protect named paths without guaranteeing every hard-link alias; Landlock and Windows ACL cannot subtract credential reads. With no exclusions, the original write-enforcement verdict remains.
+Commands run under per-call policy. `full` means every promised file effect is governed; `partial` means gaps remain. Seatbelt and bwrap retain their original enforcement judgment with read exclusions. Landlock reports `partial` when exclusions are nonempty; Windows ACL remains `partial`. Remaining read gaps are listed under [Known Limitations](#known-limitations-and-deferred-work).
 
 ### Failures and recovery
 
@@ -84,7 +84,7 @@ With the built-in Windows runner and a skill registry, this provider registers t
 
 When the built ACL runner is absent, source launch pins the `tsx/esm/api` loader and TypeScript path mapping to this installation. The command's working directory and ambient `TSX_TSCONFIG_PATH` cannot select the runner's source dependencies.
 
-The shared `deniedReadPaths` derives exclusions from the actual credential provider and additional policy entries. Seatbelt appends `(deny file-read* (literal ...))` after allow-default and write rules, matching resolved paths (`/tmp` becomes `/private/tmp`). After temp and workspace mounts, bwrap masks existing files with `--ro-bind /dev/null <path>`; reads return empty content. Missing files are skipped without startup failure. Landlock cannot subtract a file from its `/` read grant. Windows `WRITE_RESTRICTED` tokens apply their second access check only to writes: a read-deny ACE for existing write SIDs does not restrict ordinary reads, while denying the user or Everyone would also block the host. Credential reads remain unrestricted there.
+The shared `deniedReadPaths` derives exclusions from the actual credential provider and additional policy entries. Seatbelt appends `(deny file-read* (literal ...))` and `(deny file-write* (literal ...))` after allow-default and write grants, preventing reads and renames of protected files inside writable roots while matching resolved paths (`/tmp` becomes `/private/tmp`). After temp and workspace mounts, bwrap masks existing files with `--ro-bind /dev/null <path>`; reads return empty content. Missing files are skipped without startup failure. Landlock cannot subtract a file from its `/` read grant. Windows `WRITE_RESTRICTED` tokens apply their second access check only to writes: a read-deny ACE for existing write SIDs does not restrict ordinary reads, while denying the user or Everyone would also block the host. Credential reads remain unrestricted there.
 
 ### Denial and runner-failure dialects
 
@@ -137,7 +137,7 @@ These limits define when the provider is a poor fit or needs special operational
 - **Runner selection is cached for the provider lifetime** — installing, removing, or repairing a runner requires reloading the plugin before selection changes.
 - **`runnerCommand` is an operator assertion** — a configured custom runner skips functional probes and is assumed to implement the bwrap-compatible profile honestly; if it is itself a Bash script, its interpreter startup runs before that script applies confinement.
 
-- **Known read limits** — Seatbelt and bwrap block resolved symlink and `..` aliases; Seatbelt resolves case aliases on default case-insensitive macOS. Neither guarantees blocking hard links at other filenames. bwrap skips files absent at launch, so later creation is unmasked. Lists and mounts are fixed at launch; path redirection, file replacement, inherited open descriptors and other reading interfaces prevent complete secret isolation. Landlock and Windows ACL permit all four path variants. The filesystem fence rejects hard links to the current inode; see [fence limits](../../fs/fs-sandbox/README.md#known-limitations-and-deferred-work). `danger-full-access` applies none of these restrictions.
+- **Known read limits** — Seatbelt and bwrap block resolved symlink and `..` aliases; Seatbelt resolves case aliases on default case-insensitive macOS. Neither guarantees blocking pre-existing hard links at other filenames; Seatbelt denies mutation of the named protected file, including rename, even inside writable roots. bwrap skips files absent at launch, so later creation is unmasked. Lists and mounts are fixed at launch; path redirection, file replacement, inherited open descriptors and other reading interfaces prevent complete secret isolation. Landlock and Windows ACL permit all four path variants. The filesystem fence rejects hard links to the current inode; see [fence limits](../../fs/fs-sandbox/README.md#known-limitations-and-deferred-work). `danger-full-access` applies none of these restrictions.
 
 <a id="dev-note"></a>
 ### Dev Note

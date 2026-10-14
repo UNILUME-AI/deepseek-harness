@@ -46,8 +46,7 @@ Load the package with a default mode; the fail-safe default is `read-only`, and 
 |---|---|---|
 | `mode` | `read-only` | The deployment default mode a session starts from, validated at load |
 | `workspaceRoot` | `process.cwd()` | Absolute fallback root for agentless calls or sessions without a cwd; relative values fail at load. Normal agent calls use the session's immutable cwd |
-
-| `deniedReadPaths` | empty | Additional absolute host filenames, merged with credential-provider exclusions by confined local backends; relative entries fail at load |
+| `deniedReadPaths` | empty | Additional absolute host filenames, merged with credential-provider exclusions by confined local backends; relative paths and existing directories fail at load; absent files are accepted |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-sandbox-policy) is the exhaustive source for every accepted field and its JSDoc.
 
@@ -72,6 +71,8 @@ This section explains policy resolution, the per-session store, and the model-vi
 ### Resolution precedence
 
 `resolve({ session, mode })` returns one complete per-call policy: an approved explicit mode outranks the session's last `sandbox/mode` event, which outranks the deployment default. The session's immutable `cwd` supplies the workspace root; otherwise the configured fallback applies. Absolute execution-world spelling is preserved. Enforcing providers canonicalize the root on their own filesystem, so remote `symlink/..` paths are never resolved on the Harness host.
+
+`readDenialCheck(request)` resolves the calling session policy and uses the shared `deniedReadPaths(ctx, policy)` and `isReadDenied` helpers to return an absolute-path predicate. Local content-search tools use it before starting an explicit file search and before retaining each match. Full-access predicates return false. Host-only exclusions are omitted by SSH providers before transmission.
 
 ### The per-session store
 

@@ -13,7 +13,8 @@ export class SshSandboxProvider extends SandboxProvider {
   override async confine(argv: readonly string[], policy: SandboxPolicy, signal?: AbortSignal): Promise<ConfinedArgv> {
     signal?.throwIfAborted()
     try {
-      const confined = await this.ctx.ssh.request('sandbox', { argv, policy }, factsSchema, signal)
+      const { deniedReadPaths: _hostDeniedReadPaths, ...remotePolicy } = policy
+      const confined = await this.ctx.ssh.request('sandbox', { argv, policy: remotePolicy }, factsSchema, signal)
       signal?.throwIfAborted()
       return {
         ...confined,

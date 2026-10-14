@@ -50,7 +50,7 @@ kind: "package-reference"
 
 ### 受限执行与强制执行
 
-挂载提供方后，命令按逐调用策略运行。`full` 表示后端管辖所有承诺的文件操作，`partial` 表示仍有缺口。禁读名单非空时所有本地后端均保守报告 `partial`：Seatbelt 与 bwrap 保护指定路径但不能保证所有硬链接别名，Landlock 与 Windows ACL 则无法扣除凭据读取。没有禁读项时保留原有写入强制程度。
+挂载提供方后，命令按逐调用策略运行。`full` 表示后端管辖所有承诺的文件操作，`partial` 表示仍有缺口。Seatbelt 与 bwrap 在有禁读项时仍保留原有强制程度。Landlock 在名单非空时报告 `partial`；Windows ACL 保持 `partial`。剩余读取缺口列在[已知限制](#known-limitations-and-deferred-work)中。
 
 ### 失败与恢复
 
@@ -84,7 +84,7 @@ Windows 档为每个工作区保留一个确定性写入 SID 和常驻 ACE，同
 
 构建后的 ACL runner 缺失时，源码启动将 `tsx/esm/api` 加载器和 TypeScript 路径映射固定到本安装目录。命令的工作目录和环境中的 `TSX_TSCONFIG_PATH` 无法选择 runner 的源码依赖。
 
-禁读文件由共享 `deniedReadPaths` 从实际凭据提供方和附加策略项派生。Seatbelt 在 allow-default 与写入规则之后加 `(deny file-read* (literal ...))`，使用解析后的路径，`/tmp` 归一到 `/private/tmp`。bwrap 在临时目录和工作区挂载之后用 `--ro-bind /dev/null <路径>` 遮盖已存在的文件，读取只得到空内容；不存在的文件跳过，不导致启动失败。Landlock 的 `/` 读取允许规则无法扣除一个文件。Windows 的 `WRITE_RESTRICTED` 令牌只对写入执行第二遍权限检查：现有写 SID 上的拒绝读取 ACE 无法约束普通读取，给用户或 Everyone 加拒绝 ACE 又会阻断宿主本身，因此凭据读取保持不受限。
+禁读文件由共享 `deniedReadPaths` 从实际凭据提供方和附加策略项派生。Seatbelt 在 allow-default 与写入授权之后加 `(deny file-read* (literal ...))` 与 `(deny file-write* (literal ...))`，阻止读取和改名可写根中的受保护文件，并使用解析后的路径，`/tmp` 归一到 `/private/tmp`。bwrap 在临时目录和工作区挂载之后用 `--ro-bind /dev/null <路径>` 遮盖已存在的文件，读取只得到空内容；不存在的文件跳过，不导致启动失败。Landlock 的 `/` 读取允许规则无法扣除一个文件。Windows 的 `WRITE_RESTRICTED` 令牌只对写入执行第二遍权限检查：现有写 SID 上的拒绝读取 ACE 无法约束普通读取，给用户或 Everyone 加拒绝 ACE 又会阻断宿主本身，因此凭据读取保持不受限。
 
 ### 拒绝与 runner 失败方言
 
@@ -137,7 +137,7 @@ Windows 档为每个工作区保留一个确定性写入 SID 和常驻 ACE，同
 - **runner 选择在提供方生命周期内缓存**——安装、移除或修复 runner 后，必须重载插件才能改变选择。
 - **`runnerCommand` 是操作方断言**——配置的自定义 runner 会跳过功能探测，并假定它诚实实现与 bwrap 兼容的 profile；如果它本身是 Bash 脚本，其解释器启动发生在该脚本施加约束之前。
 
-- **已知读取边界**——Seatbelt 与 bwrap 按解析后的路径阻止符号链接和 `..` 别名；默认大小写不敏感 macOS 上的路径别名由 Seatbelt 解析。两者均不保证阻止其他路径的硬链接；bwrap 对启动时不存在的文件不做挂载，后续新建文件也不受该次遮盖。名单和挂载是在启动时确定，路径重定向、文件替换、已继承的打开文件描述符及其他读取接口不构成完整机密隔离。Landlock 与 Windows ACL 的四种路径变体均仍可读取。fs 围栏可按 inode 拒绝当前文件的硬链接，见[围栏限制](../../fs/fs-sandbox/README.zh.md#known-limitations-and-deferred-work)。`danger-full-access` 完全不应用这些限制。
+- **已知读取边界**——Seatbelt 与 bwrap 按解析后的路径阻止符号链接和 `..` 别名；默认大小写不敏感 macOS 上的路径别名由 Seatbelt 解析。两者均不保证阻止其他路径上已存在的硬链接；Seatbelt 即使在可写根中也拒绝修改指定的受保护文件，包括改名。bwrap 对启动时不存在的文件不做挂载，后续新建文件也不受该次遮盖。名单和挂载是在启动时确定，路径重定向、文件替换、已继承的打开文件描述符及其他读取接口不构成完整机密隔离。Landlock 与 Windows ACL 的四种路径变体均仍可读取。fs 围栏可按 inode 拒绝当前文件的硬链接，见[围栏限制](../../fs/fs-sandbox/README.zh.md#known-limitations-and-deferred-work)。`danger-full-access` 完全不应用这些限制。
 
 <a id="dev-note"></a>
 ### 开发备注
