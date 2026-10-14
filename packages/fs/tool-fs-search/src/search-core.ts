@@ -19,7 +19,7 @@
  * @module @deepseek-ai/dsh-tool-fs-search/search-core
  */
 
-import { existsSync } from 'node:fs'
+import { accessSync, constants, existsSync, statSync } from 'node:fs'
 import { isAbsolute, join, parse, relative, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
@@ -96,11 +96,66 @@ export class SearchError extends HarnessError {
   }
 }
 
+/** Diagnostic data retained from the name-looked-up sandbox provider. */
+interface SearchConfinement {
+  argv: readonly string[]
+  enforcement: string
+  denialSignatures: readonly string[]
+  runnerFailureRules: readonly {
+    allowedExitCodes?: readonly number[]
+    fatalSignatures: readonly string[]
+    informationalLines?: readonly string[]
+  }[]
+}
+
+/** Runner executable evidence, independently excluding an unusable caller cwd. */
+function runnerSpawnFailure(error: unknown, runner: string | undefined, workdir: string): boolean {
+  if (runner === undefined) return false
+  try {
+    if (!statSync(workdir).isDirectory()) return false
+    accessSync(workdir, constants.X_OK)
+  } catch (_error: unknown) {
+    // A missing or inaccessible cwd cannot establish runner failure.
+    return false
+  }
+  if (typeof error !== 'object' || error === null) return false
+  const { code, path, syscall } = error as { code?: unknown; path?: unknown; syscall?: unknown }
+  if (code !== 'ENOENT' && code !== 'EACCES') return false
+  if (typeof syscall !== 'string') return false
+  if (path === undefined) return syscall === `spawn ${runner}`
+  return path === runner && (syscall === 'spawn' || syscall === `spawn ${runner}`)
+}
+
+/** Fatal runner rules use exit gates and exact informational-line exclusions. */
+function runnerFailure(exitCode: number, stderr: string, confined: SearchConfinement): string | undefined {
+  if (exitCode === 0) return undefined
+  for (const rule of confined.runnerFailureRules) {
+    if (rule.allowedExitCodes !== undefined && !rule.allowedExitCodes.includes(exitCode)) continue
+    const informational = new Set((rule.informationalLines ?? []).map(line => line.toLowerCase()))
+    const signatures = rule.fatalSignatures.filter(signature => signature.trim().length > 0)
+    for (const line of stderr.split(/\r?\n/)) {
+      const lowered = line.toLowerCase()
+      if (!informational.has(lowered) && signatures.some(signature => lowered.includes(signature.toLowerCase()))) return line
+    }
+  }
+  return undefined
+}
+
+/** Complete permission-only stderr permits partial results for a confined grep. */
+function permissionErrors(stderr: SubprocessOutputRead, confined: SearchConfinement): boolean {
+  if (stderr.lossy) return false
+  const lines = stderr.text.split(/\r?\n/).filter(line => line.trim().length > 0)
+  return lines.length > 0 && lines.every(line => line.startsWith('rg:') && (
+    /\(os error (?:1|13)\)/.test(line)
+    || confined.denialSignatures.some(signature => signature.trim().length > 0 && line.toLowerCase().includes(signature.toLowerCase()))
+  ))
+}
+
 /** The completed acquisition of one `rg` run: complete stdout plus the resolved workdir. */
 export interface RipgrepRun {
   /** Complete raw stdout retained by the subprocess seam within the requested cap. */
   stdout: string
-  /** True when ripgrep exited 1: a successful search with zero results. */
+  /** True for exit 1 or confined permission-only errors without begin records. */
   noMatches: boolean
   /** The resolved working directory the command ran in (the display-relativization base). */
   workdir: string
@@ -229,10 +284,10 @@ export function resolveRgPath(): Promise<string> {
  * provider, or a missing policy service keeps the plain spawn.
  *
  * Exit semantics are tool-owned: exit 0 is success with results, exit 1 is
- * success with zero results (`noMatches`), exit 2 with streamed payload is a
- * PARTIAL success (a confined search reports a permission error per excluded
- * file while the remaining files' matches still stream), and anything else
- * throws a {@link SearchError} (abort/timeout → `SEARCH_ABORTED`, invalid
+ * success with zero results (`noMatches`). Only an actually confined grep
+ * accepts exit 2 with complete, permission-only stderr; without begin records
+ * it returns zero results. Other exit codes or errors
+ * throw a {@link SearchError} (abort/timeout → `SEARCH_ABORTED`, invalid
  * pattern → `SEARCH_INVALID_PATTERN`, the rest → `SEARCH_FAILED` /
  * `SEARCH_RAW_OUTPUT_OVERFLOW`). Both launch-time failure domains are
  * classified: a synchronous throw at spawn CREATION (a NUL in argv, an abort
@@ -266,6 +321,7 @@ export async function runRipgrep(
     throw new SearchError(`${toolName} was aborted before completion (tool timeout or caller cancellation)`, 'SEARCH_ABORTED')
   }
   const workdir = searchWorkdir(exec)
+  let confined: SearchConfinement | undefined
   let spawnArgv: readonly string[]
   try {
     spawnArgv = [await resolveRgPath(), '--no-config', ...argv]
@@ -281,7 +337,8 @@ export async function runRipgrep(
     const policy = ctx.get('sandboxPolicy')?.resolve(exec.agent === undefined ? {} : { session: exec.agent.session })
     if (sandbox !== undefined && policy !== undefined && policy.mode !== 'danger-full-access') {
       try {
-        spawnArgv = (await sandbox.confine(spawnArgv, policy, exec.signal)).argv
+        confined = await sandbox.confine(spawnArgv, policy, exec.signal)
+        spawnArgv = confined.argv
       } catch (error: unknown) {
         // The signal can abort while confinement is prepared; the static
         // narrowing cannot see AbortSignal state changes.
@@ -310,12 +367,18 @@ export async function runRipgrep(
     // Node's spawn() throws synchronously for a NUL in argv, and the local
     // impl can throw synchronously when the signal aborts between the check
     // above and this call.
+    if (confined !== undefined && runnerSpawnFailure(error, confined.argv[0], workdir)) {
+      throw new SearchError(`${toolName} sandbox unavailable (${confined.enforcement} enforcement): runner could not start`, 'SEARCH_FAILED', { cause: error })
+    }
     throw launchFailure(toolName, exec.signal, error)
   }
   let outcome: SubprocessOutcome
   try {
     outcome = await handle.done
   } catch (error: unknown) {
+    if (confined !== undefined && runnerSpawnFailure(error, confined.argv[0], workdir)) {
+      throw new SearchError(`${toolName} sandbox unavailable (${confined.enforcement} enforcement): runner could not start`, 'SEARCH_FAILED', { cause: error })
+    }
     throw new SearchError(`${toolName} subprocess failed before reporting an outcome (ripgrep provider failure)`, 'SEARCH_FAILED', { cause: error })
   }
   const stdout = handle.collected.stdout?.readFrom(0)
@@ -332,20 +395,19 @@ export async function runRipgrep(
   if (outcome.signal !== null || outcome.exitCode === null) {
     throw new SearchError(`${toolName} search command was killed by signal ${outcome.signal ?? '(unknown)'}`, 'SEARCH_FAILED')
   }
-  // Exit 2 means ripgrep hit errors; with streamed payload it is a PARTIAL
-  // success: a confined search reports a permission error per read-denied
-  // file while every other file's matches still stream. Payload presence is
-  // the distinguisher — `rg --json` opens each searched file with a begin
-  // record, so a summary-only stream (a missing explicit target) and an empty
-  // stream keep the failure classification.
-  const partialErrors = outcome.exitCode === 2 && (toolName === 'grep'
-    ? stdout.text.includes('"type":"begin"')
-    : stdout.text.trim().length > 0)
+  if (confined !== undefined) {
+    const failure = runnerFailure(outcome.exitCode, stderr.text, confined)
+    if (failure !== undefined) {
+      throw new SearchError(`${toolName} sandbox unavailable (${confined.enforcement} enforcement): ${failure}`, 'SEARCH_FAILED')
+    }
+  }
+  const partialErrors = outcome.exitCode === 2 && toolName === 'grep'
+    && confined !== undefined && permissionErrors(stderr, confined)
   if (outcome.exitCode !== 0 && outcome.exitCode !== 1 && !partialErrors) {
     throw classifyRunFailure(toolName, outcome.exitCode, stderr.text, stderr.lossy)
   }
   const text = completeStdout(toolName, stdout, rawOutputMaxBytes)
-  return { stdout: text, noMatches: outcome.exitCode === 1, workdir }
+  return { stdout: text, noMatches: outcome.exitCode === 1 || (partialErrors && !text.includes('"type":"begin"')), workdir }
 }
 
 /**

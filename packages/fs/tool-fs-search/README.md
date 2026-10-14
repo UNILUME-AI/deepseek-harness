@@ -48,7 +48,7 @@ A subprocess backend, then the tools; the spill backend is optional and makes ca
 | `glob` | `pattern`, `path?` | Finds files whose paths match a glob pattern, including hidden and ignored files but excluding VCS metadata; a pattern with no `/` matches basenames at any depth, so `*` matches the whole tree; complete results stay modification-time ordered |
 | `grep` | `pattern`, `path?`, `include?` | Searches file contents with a ripgrep regex and returns matches grouped by file as `Line N: <preview>`; `include` is one positive glob filter, with comma-separated lists and negated values rejected up front |
 
-When `sandboxPolicy` is mounted, confined `grep` calls use its `readDenialCheck` predicate: an explicit protected path fails before spawn with `SEARCH_FAILED`, and protected directory matches are removed before result values, metadata and formatted spills. Anchoring preserves symlink-sensitive parent components, including Windows drive-relative paths, before the shared check resolves them and compares device/inode for hard links. `danger-full-access` preserves ordinary search behavior; `glob` lists paths only and is unchanged.
+When `sandboxPolicy` is mounted, confined `grep` calls use its `readDenialCheck` predicate: an explicit protected path fails before spawn with `SEARCH_FAILED`, and protected directory matches are removed before result values, metadata and formatted spills. With a sandbox provider mounted, ripgrep also runs under the resolved policy so the kernel denies excluded reads. Anchoring preserves symlink-sensitive parent components, including Windows drive-relative paths, before the shared check resolves them and compares device/inode for hard links. `danger-full-access` preserves ordinary search behavior; `glob` lists paths only and is unchanged.
 
 Routine budgets stay out of the model-facing schema: a model that needs surrounding context reads the matched file with `read`, and one that needs later results follows the returned spill locator's retrieval hint.
 
@@ -76,7 +76,7 @@ Node deployments receive the `@vscode/ripgrep` platform package on supported mac
 
 ### Failures and recovery
 
-Search failures carry the package-owned codes `SEARCH_INVALID_PATTERN` (ripgrep rejected the regex or glob), `SEARCH_FAILED` (a failed launch, inaccessible target, signal kill, or malformed `--json` output), `SEARCH_RAW_OUTPUT_OVERFLOW` (raw output over the cap), and `SEARCH_ABORTED` (cooperative timeout or caller cancellation). Exit 0 is success with results and exit 1 is a successful empty search; model argument mistakes stay ordinary tool argument errors.
+Search failures carry the package-owned codes `SEARCH_INVALID_PATTERN` (ripgrep rejected the regex or glob), `SEARCH_FAILED` (a failed launch, inaccessible target, signal kill, or malformed `--json` output), `SEARCH_RAW_OUTPUT_OVERFLOW` (raw output over the cap), and `SEARCH_ABORTED` (cooperative timeout or caller cancellation). Exit 0 is success with results and exit 1 is a successful empty search. Only a `grep` actually run through the sandbox accepts exit 2 when complete stderr contains only ripgrep permission errors: remaining matches are returned, or an empty result when none remain. Unconfined `grep`, `glob`, mixed errors and sandbox runner failures return `SEARCH_FAILED`; model argument mistakes stay ordinary tool argument errors.
 
 -----
 
@@ -106,7 +106,7 @@ Local workspace discovery is naturally a process-backed `rg` workflow, and putti
 
 ### How a search runs
 
-Each call resolves the packaged binary (`@vscode/ripgrep`, or the executable's `-rg` sidecar in a pkg single-file runtime), prepends `--no-config` so a host `RIPGREP_CONFIG_PATH` cannot inject a `--pre` preprocessor into the unconfined spawn, and passes every model-controlled value as a plain argv element — no shell layer exists, so no quoting applies. Collect-mode budgets bound complete stdout and a stderr tail; a lossy stdout read fails as `SEARCH_RAW_OUTPUT_OVERFLOW` rather than parsing a silently-partial stream. The tools never read a raw spill path.
+Each call resolves the packaged binary (`@vscode/ripgrep`, or the executable's `-rg` sidecar in a pkg single-file runtime), prepends `--no-config` so a host `RIPGREP_CONFIG_PATH` cannot inject a `--pre` preprocessor into the search spawn, and passes every model-controlled value as a plain argv element — no shell layer exists, so no quoting applies. Collect-mode budgets bound complete stdout and a stderr tail; a lossy stdout read fails as `SEARCH_RAW_OUTPUT_OVERFLOW` rather than parsing a silently-partial stream. The tools never read a raw spill path.
 
 ### Two budgets, two artifacts
 
@@ -205,12 +205,11 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 <a id="known-limitations-and-deferred-work"></a>
 
-
 These limits define when the search tools are a poor fit or need special operational care. They are current package constraints, not a general search comparison or a task backlog.
 
 - **Search and file access have no shared-workspace proof** — returned paths are follow-up-readable only when the workdir and filesystem root denote the same workspace; the package performs no runtime cross-service validation.
 - **The packaged binary is fixed at dependency version** — Node deployments use the version selected by `@vscode/ripgrep`; Python single-file runtimes copy that target-native version into the required `-rg` sidecar. An unsupported platform or a corrupted installation fails with `SEARCH_FAILED`, while the Python runtime package rejects a missing sidecar before launch. Remote or virtual filesystems need a co-located workspace or another search consumer.
-- **Local read checks are not kernel confinement by themselves** — with a `ctx.sandbox` provider mounted, a confined-mode `grep` call runs ripgrep through the provider, so the kernel denies excluded reads; without one, ripgrep still reads directory candidates before matches are filtered, and concurrent path or inode replacement can race the pre-spawn check and the result filter. Without `sandboxPolicy`, no read-exclusion policy is applied.
+- **Local read checks are not kernel confinement by themselves** — with both `ctx.sandbox` and `sandboxPolicy` mounted, a confined-mode `grep` call runs ripgrep through the provider, so the kernel denies excluded reads; without one, ripgrep still reads directory candidates before matches are filtered, and concurrent path or inode replacement can race the pre-spawn check and the result filter. Without `sandboxPolicy`, no read-exclusion policy is applied.
 - **The schemas expose one bounded page** — offset pagination, case-mode switches, alternate output modes, and provider-backed discovery remain outside this package; capped complete output requires a spill backend.
 - **Sampling, when enabled, groups by first path segment beneath the search root only** — an over-cap `glob` page balances across those top-level entries, so a result concentrated deeper is still shown unevenly below that level; recursive balancing is deferred.
 

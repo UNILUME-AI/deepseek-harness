@@ -48,7 +48,7 @@ kind: "package-reference"
 | `glob` | `pattern`、`path?` | 查找路径匹配 glob 模式的文件，包含隐藏与忽略文件但排除 VCS 元数据；不含 `/` 的模式匹配任意深度的基名，因此 `*` 匹配整棵树；完整结果保持按修改时间排序 |
 | `grep` | `pattern`、`path?`、`include?` | 用 ripgrep 正则搜索文件内容，并按文件分组返回 `Line N: <preview>` 匹配；`include` 是一个正向 glob 过滤器，逗号分隔列表与否定值会被前置拒绝 |
 
-挂载 `sandboxPolicy` 时，受限 `grep` 调用使用其 `readDenialCheck` 判断函数：显式受保护路径在 spawn 前以 `SEARCH_FAILED` 拒绝，目录搜索中的受保护匹配在进入结果值、元数据和格式化 spill 前被移除。路径锚定保留依赖符号链接解析的父级组件，包括 Windows 驱动器相对路径，再由共享判断解析并用设备号/inode 识别硬链接。`danger-full-access` 保留普通搜索行为；`glob` 只列路径，行为不变。
+挂载 `sandboxPolicy` 时，受限 `grep` 调用使用其 `readDenialCheck` 判断函数：显式受保护路径在 spawn 前以 `SEARCH_FAILED` 拒绝，目录搜索中的受保护匹配在进入结果值、元数据和格式化 spill 前被移除。同时挂载沙箱提供方时，ripgrep 也在解析后的策略下运行，由内核拒绝禁读。路径锚定保留依赖符号链接解析的父级组件，包括 Windows 驱动器相对路径，再由共享判断解析并用设备号/inode 识别硬链接。`danger-full-access` 保留普通搜索行为；`glob` 只列路径，行为不变。
 
 常规预算不进入面向模型的 schema：需要周边上下文的模型用 `read` 读取匹配文件，需要后续结果的模型遵循返回的 spill locator 检索提示。
 
@@ -76,7 +76,7 @@ Node 部署在受支持的 macOS、Linux 与 Windows 目标上获得 `@vscode/ri
 
 ### 失败与恢复
 
-搜索失败携带本包定义的错误码：`SEARCH_INVALID_PATTERN`（ripgrep 拒绝正则或 glob）、`SEARCH_FAILED`（启动失败、目标不可访问、信号终止或 `--json` 输出格式错误）、`SEARCH_RAW_OUTPUT_OVERFLOW`（原始输出超过上限）与 `SEARCH_ABORTED`（协作式超时或调用方取消）。退出 0 表示成功且有结果，退出 1 表示成功的空搜索；模型参数错误仍是普通工具参数错误。
+搜索失败携带本包定义的错误码：`SEARCH_INVALID_PATTERN`（ripgrep 拒绝正则或 glob）、`SEARCH_FAILED`（启动失败、目标不可访问、信号终止或 `--json` 输出格式错误）、`SEARCH_RAW_OUTPUT_OVERFLOW`（原始输出超过上限）与 `SEARCH_ABORTED`（协作式超时或调用方取消）。退出 0 表示成功且有结果，退出 1 表示成功的空搜索。只有实际经沙箱运行的 `grep` 在完整 stderr 仅含 ripgrep 权限错误时接受退出 2：返回其余匹配，无匹配则返回空结果。未隔离的 `grep`、`glob`、混合错误和沙箱 runner 失败均返回 `SEARCH_FAILED`；模型参数错误仍是普通工具参数错误。
 
 -----
 
@@ -106,7 +106,7 @@ Node 部署在受支持的 macOS、Linux 与 Windows 目标上获得 `@vscode/ri
 
 ### 搜索如何运行
 
-每次调用解析打包二进制（`@vscode/ripgrep`，或 pkg 单文件运行时中可执行程序的 `-rg` 伴随文件），前置 `--no-config`，使宿主的 `RIPGREP_CONFIG_PATH` 无法向不受约束的 spawn 注入 `--pre` 预处理器，并把每个模型控制的值作为普通 argv 元素传入——不存在 shell 层，因此不涉及 shell 引号处理。collect 模式预算限制完整 stdout 与 stderr 尾部；lossy stdout 读取以 `SEARCH_RAW_OUTPUT_OVERFLOW` 失败，而不是解析静默不完整的流。工具从不读取原始 spill 路径。
+每次调用解析打包二进制（`@vscode/ripgrep`，或 pkg 单文件运行时中可执行程序的 `-rg` 伴随文件），前置 `--no-config`，使宿主的 `RIPGREP_CONFIG_PATH` 无法向搜索 spawn 注入 `--pre` 预处理器，并把每个模型控制的值作为普通 argv 元素传入——不存在 shell 层，因此不涉及 shell 引号处理。collect 模式预算限制完整 stdout 与 stderr 尾部；lossy stdout 读取以 `SEARCH_RAW_OUTPUT_OVERFLOW` 失败，而不是解析静默不完整的流。工具从不读取原始 spill 路径。
 
 ### 两类预算、两类产物
 
@@ -205,12 +205,11 @@ glob 描述声明了配置的超过上限排序方式。生成的 [`glob` 和 `g
 
 <a id="known-limitations-and-deferred-work"></a>
 
-
 这些限制说明搜索工具何时不合适，或何时需要特别的运维注意。它们是当前包约束，不是通用搜索对比或任务积压。
 
 - **搜索与文件访问没有共享工作区证明**——只有当工作目录与文件系统根目录指向同一工作区时，返回路径才可继续读取；本包不执行运行时跨服务校验。
 - **打包二进制固定在依赖版本上**——Node 部署使用 `@vscode/ripgrep` 选择的版本；Python 单文件运行时将对应目标的原生版本复制为必需的 `-rg` 伴随文件。不支持的平台或损坏的安装会以 `SEARCH_FAILED` 使调用失败，Python 运行时包则会在启动前拒绝缺少伴随文件的安装。远程或虚拟文件系统需要共置的工作区或另一个搜索消费方。
-- **本地读取检查本身并非内核隔离**——挂载 `ctx.sandbox` 提供方时，受限模式下的 `grep` 调用经提供方启动 ripgrep，由内核拒绝禁读；未挂载提供方时，ripgrep 仍先读取目录候选再过滤匹配，并发替换路径或 inode 可与启动前检查和结果过滤竞争。未挂载 `sandboxPolicy` 时不应用禁读策略。
+- **本地读取检查本身并非内核隔离**——同时挂载 `ctx.sandbox` 与 `sandboxPolicy` 时，受限模式下的 `grep` 调用经提供方启动 ripgrep，由内核拒绝禁读；未挂载提供方时，ripgrep 仍先读取目录候选再过滤匹配，并发替换路径或 inode 可与启动前检查和结果过滤竞争。未挂载 `sandboxPolicy` 时不应用禁读策略。
 - **schema 只暴露一个有界页面**——偏移分页、大小写开关、替代输出模式与提供方支撑的发现仍不在本包范围内；达到上限的完整输出需要 spill 后端。
 - **启用采样时仅按搜索根正下方的第一段路径分组**——超过上限的 `glob` 页面在这些顶层条目之间平衡，因此集中在更深处的结果在该层级之下仍会呈现不均；递归平衡被延期。
 

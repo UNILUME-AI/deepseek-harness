@@ -645,9 +645,7 @@ describe('raw output acquisition', () => {
 })
 
 describe('partial results on per-file errors', () => {
-  it('exit 2 with streamed matches returns the grep partial result', async () => {
-    // A confined search reports a permission error per read-denied file while
-    // the remaining files still stream their matches.
+  it('unconfined exit 2 with streamed matches fails the grep search', async () => {
     const { ctx, subprocess } = await setup()
     const begin = JSON.stringify({ type: 'begin', data: { path: { text: w('a.ts') } } })
     subprocess.handler = () => runResult(`${begin}\n${matchLine(w('a.ts'), 1, 'x')}\n`, {
@@ -655,20 +653,19 @@ describe('partial results on per-file errors', () => {
       stderr: { text: 'rg: Secret.yaml: Permission denied (os error 13)' },
     })
     const result = await call(ctx, 'grep', { pattern: 'x' })
-    expect(result.isError).toBe(false)
-    expect(text(result)).toContain('a.ts')
-    expect(text(result)).toContain('Line 1: x')
+    expect(result.isError).toBe(true)
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
   })
 
-  it('exit 2 with streamed paths returns the glob partial result', async () => {
+  it('exit 2 with streamed paths fails the glob search', async () => {
     const { ctx, subprocess } = await setup()
     subprocess.handler = () => runResult('a.ts\n', {
       exitCode: 2,
       stderr: { text: 'rg: Secret.yaml: Permission denied (os error 13)' },
     })
     const result = await call(ctx, 'glob', { pattern: '*' })
-    expect(result.isError).toBe(false)
-    expect(text(result)).toContain('a.ts')
+    expect(result.isError).toBe(true)
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
   })
 
   it('exit 2 with empty stdout keeps the failure classification', async () => {
@@ -683,7 +680,15 @@ describe('partial results on per-file errors', () => {
 describe('sandbox confinement of the ripgrep spawn', () => {
   const MARKER = 'confined-by-test'
   interface ConfineCall { argv: readonly string[]; policy: { mode: string }; signal?: AbortSignal }
-  const provideSandbox = (ctx: Context, implementation?: (call: ConfineCall) => readonly string[]): ConfineCall[] => {
+  interface SandboxDiagnostics {
+    denialSignatures: string[]
+    runnerFailureRules: { allowedExitCodes?: number[]; fatalSignatures: string[]; informationalLines?: string[] }[]
+  }
+  const provideSandbox = (
+    ctx: Context,
+    implementation?: (call: ConfineCall) => readonly string[],
+    diagnostics: SandboxDiagnostics = { denialSignatures: [], runnerFailureRules: [] },
+  ): ConfineCall[] => {
     const calls: ConfineCall[] = []
     ctx.provide('sandbox', {
       confine: (argv: readonly string[], policy: { mode: string }, signal?: AbortSignal) => {
@@ -692,8 +697,7 @@ describe('sandbox confinement of the ripgrep spawn', () => {
         return Promise.resolve({
           argv: implementation?.(call) ?? [MARKER, '--', ...argv],
           enforcement: 'full',
-          denialSignatures: [],
-          runnerFailureRules: [],
+          ...diagnostics,
         })
       },
     })
@@ -711,7 +715,7 @@ describe('sandbox confinement of the ripgrep spawn', () => {
     const calls = provideSandbox(ctx)
     providePolicy(ctx, 'workspace-write')
     subprocess.handler = () => runResult(`${matchLine(w('a.ts'), 1, 'x')}\n`)
-    const result = await call(ctx, 'grep', { pattern: 'x' })
+    const result = await call(ctx, 'grep', { pattern: 'x' }, { agent: agent(process.cwd()) })
     expect(result.isError).toBe(false)
     expect(calls).toHaveLength(1)
     expect(calls[0]!.policy).toEqual({ mode: 'workspace-write', workspaceRoot: '/ws' })
@@ -726,6 +730,138 @@ describe('sandbox confinement of the ripgrep spawn', () => {
     expect(calls).toHaveLength(1)
     expect(subprocess.spawns[1]!.argv[0]).toBe(rgPath)
     expect(subprocess.spawns[1]!.argv[1]).toBe('--no-config')
+  })
+
+  it('rejects a denied explicit path before spawning with an agent session', async () => {
+    const { ctx, subprocess } = await setup()
+    const owner = agent(process.cwd())
+    ctx.provide('sandboxPolicy', { readDenialCheck: ({ session }: { session: object }) => {
+      expect(session).toBe(owner.session)
+      return () => true
+    } })
+    const result = await call(ctx, 'grep', { pattern: 'x', path: 'Secret.yaml' }, { agent: owner })
+    expect(result.isError).toBe(true)
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
+    expect(subprocess.spawns).toHaveLength(0)
+  })
+
+  it.each([
+    ['rg: Secret.yaml: Operation not permitted (os error 1)', false],
+    ['rg: Secret.yaml: Permission denied (os error 13)\n', false],
+    ['rg: Secret.yaml: backend read blocked', false],
+    ['rg: Secret.yaml: backend read blocked\nrg: missing: No such file (os error 2)', true],
+    ['rg: Secret.yaml: Permission denied (os error 13)\nrunner: warning', true],
+    ['', true],
+  ])('handles summary-only confined stderr %s', async (stderr, fails) => {
+    const { ctx, subprocess } = await setup()
+    provideSandbox(ctx, undefined, { denialSignatures: [' ', 'BACKEND READ BLOCKED'], runnerFailureRules: [] })
+    providePolicy(ctx, 'workspace-write')
+    subprocess.handler = () => runResult('{"type":"summary","data":{}}\n', { exitCode: 2, stderr: { text: stderr } })
+    const result = await call(ctx, 'grep', { pattern: 'x' })
+    expect(result.isError).toBe(fails)
+    if (fails) expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
+    else expect(text(result)).toBe('No matches found')
+  })
+
+  it('keeps matches only for complete permission-only errors', async () => {
+    const { ctx, subprocess } = await setup()
+    provideSandbox(ctx)
+    providePolicy(ctx, 'workspace-write')
+    const stdout = `${JSON.stringify({ type: 'begin', data: { path: { text: 'a.ts' } } })}\n${matchLine('a.ts', 1, 'x')}\n`
+    subprocess.handler = () => runResult(stdout, { exitCode: 2, stderr: { text: 'rg: Secret.yaml: Permission denied (os error 13)' } })
+    const result = await call(ctx, 'grep', { pattern: 'x' })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('Line 1: x')
+    subprocess.handler = () => runResult(stdout, { exitCode: 2, stderr: { text: 'rg: Secret.yaml: Permission denied (os error 13)', lossy: true } })
+    expect((await call(ctx, 'grep', { pattern: 'x' })).error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
+    subprocess.handler = () => runResult(stdout, { exitCode: 2, stderr: { text: 'rg: missing: No such file (os error 2)' } })
+    expect((await call(ctx, 'grep', { pattern: 'x' })).error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
+  })
+
+  it.each([
+    [0, 'runner: fatal', false],
+    [1, 'runner: fatal', true],
+    [2, 'runner: fatal', false],
+    [1, 'runner: informational\nclean', false],
+    [1, 'other: fatal', false],
+  ])('classifies runner diagnostics with exit %i and stderr %s', async (exitCode, stderr, fails) => {
+    const { ctx, subprocess } = await setup()
+    provideSandbox(ctx, undefined, { denialSignatures: [], runnerFailureRules: [
+      { allowedExitCodes: [1], fatalSignatures: [' ', 'RUNNER:'], informationalLines: ['runner: informational'] },
+      { fatalSignatures: ['another runner:'] },
+    ] })
+    providePolicy(ctx, 'read-only')
+    subprocess.handler = () => runResult('', { exitCode, stderr: { text: stderr } })
+    const result = await call(ctx, 'grep', { pattern: 'x' })
+    if (fails) {
+      expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
+      expect(text(result)).toContain('sandbox unavailable')
+    } else expect(text(result)).not.toContain('sandbox unavailable')
+  })
+
+  it('reports a bwrap launch failure instead of treating exit 1 as no matches', async () => {
+    const { ctx, subprocess } = await setup()
+    provideSandbox(ctx, undefined, { denialSignatures: [], runnerFailureRules: [{ fatalSignatures: ['bwrap: '] }] })
+    providePolicy(ctx, 'read-only')
+    subprocess.handler = () => runResult('', { exitCode: 1, stderr: { text: 'bwrap: Creating new namespace failed: Operation not permitted' } })
+    const result = await call(ctx, 'grep', { pattern: 'x' })
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
+    expect(text(result)).toContain('sandbox unavailable')
+    expect(text(result)).toContain('bwrap: Creating new namespace failed')
+  })
+
+  it.each([
+    [Object.assign(new Error('missing'), { code: 'ENOENT', syscall: 'spawn', path: MARKER }), true],
+    [Object.assign(new Error('missing'), { code: 'EACCES', syscall: `spawn ${MARKER}` }), true],
+    [Object.assign(new Error('missing'), { code: 'ENOENT', syscall: `spawn ${MARKER}`, path: MARKER }), true],
+    [Object.assign(new Error('missing'), { code: 'ENOENT', syscall: 'spawn other' }), false],
+    [Object.assign(new Error('missing'), { code: 'ENOENT', syscall: 'spawn', path: 'other' }), false],
+    [Object.assign(new Error('missing'), { code: 'ENOENT', syscall: 'spawn other', path: MARKER }), false],
+    [Object.assign(new Error('missing'), { code: 'ENOENT' }), false],
+    [new Error('provider failed'), false],
+  ])('attributes runner spawn rejection %s', async (error, unavailable) => {
+    const { ctx, subprocess } = await setup()
+    provideSandbox(ctx)
+    providePolicy(ctx, 'read-only')
+    subprocess.handler = () => ({ reject: error })
+    const result = await call(ctx, 'grep', { pattern: 'x' })
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
+    expect(text(result).includes('sandbox unavailable')).toBe(unavailable)
+  })
+
+  it('attributes synchronous runner launch failure', async () => {
+    const { ctx, subprocess } = await setup()
+    provideSandbox(ctx)
+    providePolicy(ctx, 'read-only')
+    subprocess.spawn = () => { throw Object.assign(new Error('missing'), { code: 'ENOENT', syscall: 'spawn', path: MARKER }) }
+    expect(text(await call(ctx, 'grep', { pattern: 'x' }))).toContain('sandbox unavailable')
+  })
+
+  it('filters denied directory matches with one check per file', async () => {
+    const { ctx, subprocess } = await setup()
+    let checks = 0
+    ctx.provide('sandboxPolicy', { resolve: () => ({ mode: 'workspace-write' }), readDenialCheck: () => () => { checks++; return true } })
+    subprocess.handler = () => runResult(`${matchLine('Secret.yaml', 1, 'secret')}\n${matchLine('Secret.yaml', 2, 'secret')}\n`)
+    const result = await call(ctx, 'grep', { pattern: 'secret' }, { agent: agent(process.cwd()) })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toBe('No matches found')
+    expect(checks).toBe(1)
+  })
+
+  it.each([
+    [[], process.cwd(), new Error('no runner')],
+    [[MARKER], '/missing-search-cwd', new Error('missing cwd')],
+    [[MARKER], rgPath, new Error('file cwd')],
+    [[MARKER], process.cwd(), 'non-object rejection'],
+    [[MARKER], process.cwd(), null],
+  ])('does not attribute insufficient runner evidence %#', async (argv, cwd, error) => {
+    const { ctx, subprocess } = await setup()
+    provideSandbox(ctx, () => argv)
+    providePolicy(ctx, 'read-only')
+    subprocess.spawn = () => { throw error }
+    const result = await call(ctx, 'grep', { pattern: 'x' }, { agent: agent(cwd) })
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
+    expect(text(result)).not.toContain('sandbox unavailable')
   })
 
   it('runs unconfined under danger-full-access', async () => {
