@@ -1,6 +1,7 @@
 /**
- * Grep tool directory searches omit denied credentials and retain public
- * matches. Skips on hosts without a usable confinement runner.
+ * The confinement runner refuses the denied file to ripgrep itself, and grep
+ * tool directory searches omit denied credentials and retain public matches.
+ * Skips on hosts without a usable confinement runner.
  */
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -31,6 +32,24 @@ async function usable(policy: { mode: 'read-only'; workspaceRoot: string }): Pro
 }
 
 describe('confined ripgrep read denial', () => {
+  it('the confinement runner itself refuses the denied file', async ({ onTestFinished, skip }) => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-confined-rg-'))
+    onTestFinished(() => { rmSync(root, { recursive: true, force: true }) })
+    const file = join(root, 'Secret.yaml')
+    writeFileSync(file, 'DSH_READ_DENIAL_TEST: fixture-secret\n', { mode: 0o600 })
+    if (!await usable({ mode: 'read-only', workspaceRoot: root })) skip()
+    const ctx = new Context()
+    onTestFinished(async () => { await ctx.fiber.dispose() })
+    await ctx.plugin(LocalSandboxProvider)
+    const confined = await ctx.sandbox.confine(
+      [await ToolFsSearch.resolveRgPath(), '--no-config', 'fixture-secret', file],
+      { mode: 'workspace-write', workspaceRoot: root, deniedReadPaths: [file] },
+    )
+    const run = spawnSync(confined.argv[0]!, confined.argv.slice(1), { encoding: 'utf8' })
+    expect(run.status).not.toBe(0)
+    expect(run.stdout).not.toContain('fixture-secret')
+  })
+
   for (const publicMatches of [false, true]) {
     it(`searches through grep with public matches: ${publicMatches}`, async ({ onTestFinished, skip }) => {
       const root = mkdtempSync(join(tmpdir(), 'dsh-confined-rg-'))
