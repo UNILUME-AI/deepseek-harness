@@ -148,11 +148,14 @@ export interface DisplayFailure {
  */
 export function displayFailure(failure: unknown): DisplayFailure {
   if (failure === null || typeof failure !== 'object') return { message: String(failure) }
-  const record = failure as { code?: unknown; message?: unknown }
+  const record = failure as { code?: unknown; message?: unknown; status?: unknown }
   const code = typeof record.code === 'string' ? record.code : undefined
   // Provider AUTH messages may echo a masked or partially preserved credential.
   // Keep the raw diagnostic in the Session log, but never retain it in UI state.
-  if (code === 'AUTH') return { code, message: '' }
+  // A 403 means the credential was accepted but the request was refused, so it
+  // must not read as an invalid key. FORBIDDEN is display-only: the Session log
+  // keeps code AUTH with status 403.
+  if (code === 'AUTH') return { code: record.status === 403 ? 'FORBIDDEN' : code, message: '' }
   return {
     ...(code === undefined ? {} : { code }),
     message: typeof record.message === 'string' ? record.message : JSON.stringify(failure),

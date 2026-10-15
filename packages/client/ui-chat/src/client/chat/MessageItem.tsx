@@ -8,6 +8,7 @@ import type {
   ChatNodeOwnerProps, ChatNodeViewProps, ChatViewSlotProps, UserContentAttachment, UserContentData, UserContentInput,
 } from '../contract/slots.ts'
 import type { ModelRetryNode, TurnErrorNode, UserMessageNode } from '../contract/snapshot.ts'
+import { displayFailure } from '../conversation-nodes/event-projection.ts'
 import { CompactionItem } from './CompactionItem.tsx'
 import { ContextInjectionRow } from './ContextInjectionRow.tsx'
 import { MessageIconActions } from './MessageIconActions.tsx'
@@ -57,6 +58,7 @@ function failureMessage(
   if (code === 'INTERRUPTED') return t('message.failure.interrupted')
   if (code === 'ACCOUNT_SIGN_IN_REQUIRED') return t('message.failure.accountSignInRequired')
   if (code === 'QUOTA' || code === 'ACCOUNT_QUOTA') return t('message.failure.quota')
+  if (code === 'FORBIDDEN') return t('message.failure.forbidden')
   return code === 'AUTH' ? t('message.failure.auth') : message
 }
 
@@ -69,6 +71,7 @@ function ModelRetryItem({ node, active, t }: {
   // retry node. Host event time and Date.now() may belong to different clocks.
   const deadline = useMemo(() => Date.now() + node.delayMs, [node.delayMs, node.seq])
   const scheduledSeconds = retrySeconds(node.delayMs)
+  const failure = displayFailure(node.failure)
   const maximum = node.mode === 'normal' ? node.maxRetries : '∞'
   const [countdown, setCountdown] = useState<RetryCountdown>(() => ({
     deadline,
@@ -121,7 +124,7 @@ function ModelRetryItem({ node, active, t }: {
         </div>
         <div>
           <span className={css.retryDetailLabel}>{t('message.retry.failure')}</span>
-          {failureMessage(node.failure.message, node.failure.code, t)}
+          {failureMessage(failure.message, failure.code, t)}
         </div>
       </div>
     </details>
