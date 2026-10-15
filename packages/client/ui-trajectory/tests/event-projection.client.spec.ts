@@ -55,6 +55,7 @@ describe('Trajectory event projection', () => {
 
   it('redacts auth failures and presents other durable values', () => {
     expect(displayFailure({ code: 'AUTH', message: 'secret' })).toEqual({ code: 'AUTH', message: '' })
+    expect(displayFailure({ code: 'AUTH', status: 403, message: 'secret' })).toEqual({ code: 'FORBIDDEN', message: '' })
     expect(displayFailure({ message: 'offline' })).toEqual({ message: 'offline' })
     expect(displayFailure({ code: 'UNKNOWN' })).toEqual({ code: 'UNKNOWN', message: '{"code":"UNKNOWN"}' })
     expect(displayFailure(undefined)).toEqual({ message: 'undefined' })
