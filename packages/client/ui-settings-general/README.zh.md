@@ -37,6 +37,8 @@ kind: "package-reference"
 
 设置的可见状态和分区选择由 shell owner store 保存。外壳将设置命令的有效绑定传给入口贡献，用于菜单键帽和 `aria-keyshortcuts`；回退按钮使用相同绑定提供悬停、键盘聚焦提示和 `aria-keyshortcuts`。设置位于最前方或没有模态弹窗时，设置命令（Desktop 为 `Mod+,`，Windows/macOS Web 为 `Mod+Alt+,`）切换设置弹窗的开关；侧栏控件打开同一弹窗。快捷键速查或其他模态弹窗位于前方时，该命令不能打开或关闭设置。长按产生的重复按键不执行操作。初始焦点落在导航中选中的分区；没有可用分区时落在标题上，均不绘制焦点外轮廓线。Tab 和方向键导航保留可见焦点提示。`Mod+/` 可在设置上方打开快捷键速查；`Escape` 关闭最上层弹窗，焦点返回触发该弹窗的控件。通过快捷键、Esc 或鼠标关闭后的回焦均不绘制外轮廓线。
 
+外壳提供 [`settingsShell` 客户端服务](../ui-settings/README.zh.md#opening-and-closing-the-settings-panel)，使插件可以通过同一个 owner store 打开分区或关闭面板。
+
 ### 「通用」分区
 
 Web 与桌面端的通用设置底部显示当前发布版本，使用构建注入的 `DSH_CLIENT_VERSION` 元数据和当前语言。缺少版本元数据的局部构建不显示该行。

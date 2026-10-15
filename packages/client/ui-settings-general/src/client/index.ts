@@ -13,10 +13,10 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { closeTopModal } from '@deepseek-ai/dsh-client-ui-primitives'
-// Type-only: the settings slot declarations plus the ctx.configForms Context
+// Type-only: the settings slot declarations plus the settings service Context
 // merge. Cross-plugin collaboration goes through the service, never a value
 // import (client bundle purity gate).
-import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { SettingsShell } from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls ctx.locale into this program.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
@@ -176,6 +176,11 @@ export function apply(ctx: ClientContext): void {
     const shellHandle = createSettingsShellStore()
     const shellInstance = shellHandle.create()
     const shellStore: typeof shellHandle = { ...shellHandle, create: () => shellInstance }
+    const settingsShell: SettingsShell = {
+      openSection: shellInstance.actions.openSection,
+      close: shellInstance.actions.close,
+    }
+    const disposeService = ctx.reflect.provide('settingsShell', settingsShell)
     const disposeCommand = ctx.shortcuts.register({
       id: 'settings.open' as ShortcutCommandId, label: () => t('shortcut.open'), aliases: ['settings', 'preferences'],
       defaults: {
@@ -210,7 +215,11 @@ export function apply(ctx: ClientContext): void {
       },
       inject: shellInjected,
     }, SettingsRoot)
-    return () => { disposeCommand(); disposeSlot() }
+    return () => {
+      disposeCommand()
+      disposeSlot()
+      void disposeService()
+    }
   })
 
   ctx.slots.inject('settings.trigger', () =>

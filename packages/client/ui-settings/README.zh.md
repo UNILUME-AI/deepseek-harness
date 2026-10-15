@@ -41,6 +41,35 @@ kind: "package-reference"
 
 设置界面会注册进本包声明的 slot 类型。外壳（`sidebar.settings` 占位方、导航、界面框架）位于 ui-settings-general；功能页面注册 `settings.section` 贡献；「插件」分区承载 `settings.plugins.tab` 页面；首次使用引导步骤注册 `settings.onboarding`。跨命名空间的表面（schema 内省、已服务命名空间目录、`hasDocument`）通过 `ctx.configForms.describe()` 读同一面镜像。
 
+<a id="opening-and-closing-the-settings-panel"></a>
+### 打开和关闭设置面板
+
+本包声明 `settingsShell` 客户端服务；[ui-settings-general](../ui-settings-general/README.zh.md) 通过外壳的共享状态提供该服务。消费插件在自己的 `package.json` 中声明该服务：
+
+```json
+{
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": ["@deepseek-ai/dsh-client-ui-settings-general"]
+    }
+  }
+}
+```
+
+manifest 的 `inject` 填提供方的包名（只用于排定模块加载顺序，只收包名、不收服务名）；客户端入口还必须导出 `inject = ['settingsShell']`，使 Cordis 等待服务就绪后再调用 `apply`。导入客户端声明后，以 `settings.section` 注册 id 调用 `openSection`，即可打开面板并选中该分区；id 未注册时使用导航中的首个分区，不抛错。没有注册分区时仍打开面板，内容列为空。在插件回调中调用 `ctx.settingsShell.close()` 即可关闭面板。
+
+```ts
+import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+
+export const inject = ['settingsShell']
+
+export function apply(ctx: Context): void {
+  ctx.settingsShell.openSection('<id>')
+}
+```
+
 ### 可观察的成功与失败
 
 已提交的写入将应答合入共享镜像。被拒绝的写入刷新最新 Host 值。浏览器使用序列化的 Config schema 校验；Host 校验完整配置，包括无法序列化的检查。

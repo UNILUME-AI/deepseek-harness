@@ -41,6 +41,35 @@ A page that edits a namespace another plugin owns registers through `ctx.configF
 
 A settings surface registers into the slot types this package declares. The shell (`sidebar.settings` occupant, navigation, chrome) lives in ui-settings-general; feature pages register `settings.section` contributions; the Plugins section hosts `settings.plugins.tab` pages; onboarding steps register `settings.onboarding`. Cross-namespace surfaces (schema introspection, the served-namespace directory, `hasDocument`) read the same mirror through `ctx.configForms.describe()`.
 
+<a id="opening-and-closing-the-settings-panel"></a>
+### Opening and closing the settings panel
+
+This package declares the `settingsShell` client service; [ui-settings-general](../ui-settings-general/README.md) provides it over the shell's shared state. Consumer plugins declare the service in their `package.json`:
+
+```json
+{
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": ["@deepseek-ai/dsh-client-ui-settings-general"]
+    }
+  }
+}
+```
+
+The manifest `inject` lists the providing package (it orders module loading only and accepts package names, not service names); the client entry must also export `inject = ['settingsShell']` so Cordis waits for the service before calling `apply`. Import the client declaration and call `openSection` with a `settings.section` registration id. It opens the panel and selects that section; an unregistered id uses the first navigation section without throwing. With no registered sections, the panel still opens with an empty content column. Call `ctx.settingsShell.close()` from a plugin callback to close the panel.
+
+```ts
+import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+
+export const inject = ['settingsShell']
+
+export function apply(ctx: Context): void {
+  ctx.settingsShell.openSection('<id>')
+}
+```
+
 ### Observable success and failures
 
 A committed write folds its answer into the shared mirror. Refused writes refresh the latest Host values. Browser validation uses the serialized Config schema; the Host validates complete configuration, including checks that cannot be serialized.
