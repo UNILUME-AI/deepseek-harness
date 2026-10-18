@@ -63,13 +63,15 @@ export type WelcomeApi = DesktopLocale & WelcomeOperations & {
 export interface WelcomeAuthentication {
   readonly loggedIn: boolean
   readonly hasApiKey: boolean
+  /** Require a signed-in account even when an API key is configured. Absent means false. */
+  readonly accountRequired?: boolean
 }
 
 /**
  * Decide whether a startup or sign-out requires the welcome entry.
- * @param authentication - current account and independently stored API-key facts.
- * @returns true only when neither authentication route is configured.
+ * @param authentication - current account, provider requirement, and independently stored API-key facts.
+ * @returns whether sign-in or an allowed API key is still needed.
  */
 export function needsWelcome(authentication: WelcomeAuthentication): boolean {
-  return !authentication.loggedIn && !authentication.hasApiKey
+  return !authentication.loggedIn && (authentication.accountRequired === true || !authentication.hasApiKey)
 }

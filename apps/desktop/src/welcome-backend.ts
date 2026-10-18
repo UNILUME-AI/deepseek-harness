@@ -8,6 +8,8 @@ import { desktopAccountBackend, type DesktopAccountBackend } from './account-bac
 export interface WelcomeState {
   readonly loggedIn: boolean
   readonly hasApiKey: boolean
+  /** Require sign-in instead of API-key entry. Absent means false. */
+  readonly accountRequired?: boolean
   readonly writable: boolean
   readonly localePreference: string | null
 }
@@ -113,8 +115,10 @@ export async function connectDesktopWelcome(
       Object.assign(states, batch)
     }
     if (ref !== undefined && !record(states[ref])) throw new Error('desktop welcome: missing credential metadata')
+    const accountState = await account.state()
     return {
-      loggedIn: (await account.state()).status === 'credential-stored',
+      loggedIn: accountState.status === 'credential-stored',
+      ...(accountState.capabilities?.accountRequired === true ? { accountRequired: true } : {}),
       hasApiKey: Object.values(states).some(value => record(value) && value.configured === true),
       writable: ref !== undefined && record(states[ref]) && states[ref].writable === true,
       localePreference: localePreference(namespaces),

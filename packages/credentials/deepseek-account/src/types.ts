@@ -31,8 +31,13 @@ export interface AccountLinks {
 /** Stored-account presence is not a claim that the server has validated its token. */
 export interface AccountView {
   readonly status: 'signed-out' | 'credential-stored'
-  /** What this account provider supports; absent means every capability, the upstream behaviour. */
-  readonly capabilities?: { readonly wallet: boolean }
+  /** Account-provider features and authentication policy; omitted fields use their documented defaults. */
+  readonly capabilities?: {
+    /** Whether wallet queries and controls are supported. Absent means true. */
+    readonly wallet?: boolean
+    /** The provider requires a signed-in account: the welcome flow offers only sign-in and shows until signed in. Absent means false. */
+    readonly accountRequired?: boolean
+  }
   readonly links: AccountLinks
   readonly attempt: SignInAttemptView | null
 }
