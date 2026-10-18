@@ -57,6 +57,11 @@ export interface WelcomeOperations {
 export type WelcomeApi = DesktopLocale & WelcomeOperations & {
   /** @param listener - safe account snapshot recipient. @returns subscription disposer. */
   onAccountState(listener: (state: AccountView) => void): () => void
+  /**
+   * When present, API-key entry stays closed until the first account snapshot arrives.
+   * @returns the latest account snapshot received by this window, waiting for the first one.
+   */
+  readAccountState?(): Promise<AccountView>
 }
 
 /** Authentication facts supplied at cold start or after a completed sign-out. */
