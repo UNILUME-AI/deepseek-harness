@@ -8,6 +8,11 @@ import { WELCOME_IPC, type WelcomeApi, type WelcomeNotice, type WelcomeSaveResul
 const prefix = '--dsh-welcome-locale='
 const locale = process.argv.find(argument => argument.startsWith(prefix))?.slice(prefix.length)
 if (locale === undefined) throw new Error('desktop welcome: missing window locale')
+// Registered at preload load so a snapshot sent before the page subscribes is retained.
+let latestAccount: AccountView | undefined
+const firstAccount = new Promise<AccountView>((resolve) => {
+  ipcRenderer.on(WELCOME_IPC.state, (_event, state: AccountView) => { latestAccount = state; resolve(state) })
+})
 const api: WelcomeApi = {
   ...resolveDesktopLocale(locale),
   analytics: async (eventName, attributes) => {
@@ -23,6 +28,7 @@ const api: WelcomeApi = {
     ipcRenderer.on(WELCOME_IPC.state, receive)
     return () => { ipcRenderer.removeListener(WELCOME_IPC.state, receive) }
   },
+  readAccountState: () => latestAccount === undefined ? firstAccount : Promise.resolve(latestAccount),
   saveApiKey: (value: string) => ipcRenderer.invoke(WELCOME_IPC.saveApiKey, value) as Promise<WelcomeSaveResult>,
   skip: () => ipcRenderer.invoke(WELCOME_IPC.skip) as Promise<void>,
 }

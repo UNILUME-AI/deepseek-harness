@@ -2,6 +2,8 @@ import { once } from 'node:events'
 import { WebSocketServer } from 'ws'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { accountView, desktopAccountBackend } from '../src/account-backend.ts'
+import { needsWelcome } from '../src/welcome-api.ts'
+import { connectDesktopWelcome } from '../src/welcome-backend.ts'
 
 it('projects only safe account fields and refuses non-browser authorization schemes', () => {
   const state = { links: { usageUrl: 'http://localhost/usage', topUpUrl: 'http://localhost/top_up' }, status: 'signed-out', token: 'not-for-the-renderer',
@@ -30,6 +32,36 @@ it('uses account Remote commands without returning additional wire fields', asyn
     { namespace: 'account', method: 'startSignIn', args: { client, callbackOrigin: 'http://127.0.0.1:1234', loginSource: 'desktop' } },
     { namespace: 'account', method: 'signOut', args: { client } },
   ])
+})
+
+it('keeps boolean account capabilities and drops other capability values', () => {
+  const state = { status: 'signed-out', attempt: null,
+    links: { usageUrl: 'https://platform.deepseek.com/usage', topUpUrl: 'https://platform.deepseek.com/top_up' } }
+  expect(accountView({ ...state, capabilities: { wallet: false, accountRequired: true, extra: true } }))
+    .toEqual({ ...state, capabilities: { wallet: false, accountRequired: true } })
+  expect(accountView({ ...state, capabilities: { wallet: 'no', accountRequired: 1 } })).toEqual({ ...state, capabilities: {} })
+  expect(accountView({ ...state, capabilities: 'all' })).toEqual(state)
+})
+
+it.each([
+  { capabilities: { accountRequired: true, extra: 'ignored' }, welcome: true },
+  { capabilities: { accountRequired: 'yes' }, welcome: false },
+  { capabilities: undefined, welcome: false },
+])('decides the welcome from account capabilities parsed off the RPC response: %j', async ({ capabilities, welcome }) => {
+  const send: Parameters<typeof connectDesktopWelcome>[1] = async (_input, init) => {
+    if (init?.method !== 'POST') return new Response('index')
+    const { rpcId, method } = JSON.parse(init.body as string) as { rpcId: string; method: string }
+    const value: unknown = method === 'settings/describe'
+      ? { namespaces: [{ ns: 'llm-deepseek', value: { apiKeyEnv: 'EXAMPLE_API_KEY' } }, { ns: 'locale', value: {} }] }
+      : method === 'llm/listConfigurableProviders' ? []
+        : method === 'account/getState' ? { status: 'signed-out', attempt: null, ...capabilities === undefined ? {} : { capabilities },
+          links: { usageUrl: 'http://localhost/usage', topUpUrl: 'http://localhost/top_up' } }
+          : { EXAMPLE_API_KEY: { configured: true, writable: true } }
+    return Response.json({ type: 'server-response', rpcId, result: { ok: true, value } })
+  }
+  const state = await (await connectDesktopWelcome('http://127.0.0.1:19387/?token=fixture', send)).read()
+  expect(state.hasApiKey).toBe(true)
+  expect(needsWelcome(state)).toBe(welcome)
 })
 
 it('does not replay an expiry reason from an account snapshot', () => {

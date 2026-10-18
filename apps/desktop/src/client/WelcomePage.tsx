@@ -20,8 +20,9 @@ export function Welcome({ api }: { api: WelcomeApi }) {
   const [page, setPage] = useState<Page>('entry')
   const pageRef = useRef<Page>('entry')
   const visiblePage = useRef<Page>('entry')
-  const [accountRequired, setAccountRequired] = useState(false)
-  const accountRequiredRef = useRef(false)
+  // An API that can supply the first snapshot keeps API-key entry closed until that snapshot decides.
+  const [accountRequired, setAccountRequired] = useState(api.readAccountState !== undefined)
+  const accountRequiredRef = useRef(api.readAccountState !== undefined)
   const [attempt, setAttempt] = useState<AccountView['attempt']>(null)
   const attemptRef = useRef<AccountView['attempt']>(null)
   const [starting, setStarting] = useState(false)
@@ -73,6 +74,12 @@ export function Welcome({ api }: { api: WelcomeApi }) {
       takeNotice()
       showAccount(state)
     })
+    const initial = revision.current
+    void api.readAccountState?.().then((state) => {
+      if (mounted.current && revision.current === initial) showAccount(state)
+    }).catch((_closedChannel: unknown) => {
+      // API-key entry stays closed; a later snapshot or sign-in result reopens it.
+    })
     return () => { mounted.current = false; stop() }
   }, [api, m.welcomeTitle])
 
@@ -94,7 +101,7 @@ export function Welcome({ api }: { api: WelcomeApi }) {
 
   async function saveKey(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (busyRef.current) return
+    if (busyRef.current || accountRequiredRef.current) return
     void api.analytics?.('api_key_save_click', {})
     const value = draft.trim()
     if (!/^[\x21-\x7e]+$/.test(value) || /^[A-Z][A-Z0-9_]*=[^=]/.test(value)
@@ -119,7 +126,7 @@ export function Welcome({ api }: { api: WelcomeApi }) {
     }
   }
   async function skip() {
-    if (busyRef.current) return
+    if (busyRef.current || accountRequiredRef.current) return
     busyRef.current = true
     setBusy(true)
     try {

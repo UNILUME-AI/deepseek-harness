@@ -32,8 +32,10 @@ export function accountView(value: unknown): AccountView {
     validateBrowserDestination(String(attempt.authorizeUrl))
   }
   const parsed = value as AccountView
+  const capabilities = accountCapabilities('capabilities' in value ? value.capabilities : undefined)
   return {
     status: parsed.status,
+    ...capabilities === undefined ? {} : { capabilities },
     links: { usageUrl: parsed.links.usageUrl, topUpUrl: parsed.links.topUpUrl },
     attempt: parsed.attempt === null ? null : {
       id: parsed.attempt.id, phase: parsed.attempt.phase,
@@ -42,6 +44,14 @@ export function accountView(value: unknown): AccountView {
       ...parsed.attempt.errorCode === undefined ? {} : { errorCode: parsed.attempt.errorCode },
     },
   }
+}
+
+/** Keep boolean `wallet` and `accountRequired`; other keys, non-boolean values, and non-object input are dropped. */
+function accountCapabilities(value: unknown): AccountView['capabilities'] {
+  if (typeof value !== 'object' || value === null) return undefined
+  const wallet = 'wallet' in value && typeof value.wallet === 'boolean' ? { wallet: value.wallet } : {}
+  const accountRequired = 'accountRequired' in value && typeof value.accountRequired === 'boolean' ? { accountRequired: value.accountRequired } : {}
+  return { ...wallet, ...accountRequired }
 }
 
 /** Only HTTP loopback or HTTPS destinations can leave the native app. */

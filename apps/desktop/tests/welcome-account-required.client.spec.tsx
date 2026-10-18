@@ -108,3 +108,64 @@ describe('desktop welcome required account', () => {
     expect(view.keyForm().hidden).toBe(false)
   })
 })
+
+describe('desktop welcome before the first account snapshot', () => {
+  function mountDelayed() {
+    const first = Promise.withResolvers<AccountView>()
+    const api = {
+      ...resolveDesktopLocale('en'),
+      analyticsEnabled: async () => true,
+      takeNotice: vi.fn<() => Promise<WelcomeNotice | undefined>>().mockResolvedValue(undefined),
+      onAccountState: vi.fn((_listener: (state: AccountView) => void) => () => {}),
+      readAccountState: vi.fn(() => first.promise),
+      startSignIn: vi.fn<() => Promise<AccountView>>().mockRejectedValue(new Error('offline')),
+      cancelSignIn: vi.fn<() => Promise<AccountView>>(),
+      copySignInLink: vi.fn(async () => undefined),
+      saveApiKey: vi.fn<(value: string) => Promise<WelcomeSaveResult>>().mockResolvedValue({ ok: true }),
+      skip: vi.fn(async () => {}),
+    }
+    render(<Welcome api={api} />)
+    const button = (id: string) => document.querySelector<HTMLButtonElement>(`#${id}`)!
+    const keyForm = () => document.querySelector<HTMLFormElement>('#key-form')!
+    return { api, first, button, keyForm }
+  }
+
+  it('hides and refuses the API-key route until the delayed snapshot allows it', async () => {
+    const view = mountDelayed()
+    expect(view.api.readAccountState).toHaveBeenCalledOnce()
+    expect(view.button('api-key').hidden).toBe(true)
+    fireEvent.click(view.button('api-key'))
+    expect(view.keyForm().hidden).toBe(true)
+    fireEvent.submit(view.keyForm())
+    fireEvent.click(view.button('skip-key'))
+    await act(async () => { fireEvent.click(view.button('sign-in')) })
+    expect(view.button('auth-retry').hidden).toBe(false)
+    expect(view.button('auth-api-key').hidden).toBe(true)
+    fireEvent.click(view.button('auth-api-key'))
+    expect(view.keyForm().hidden).toBe(true)
+    expect(view.api.saveApiKey).not.toHaveBeenCalled()
+    expect(view.api.skip).not.toHaveBeenCalled()
+    act(() => { view.api.onAccountState.mock.calls[0]![0](account()) })
+    expect(view.button('auth-api-key').hidden).toBe(false)
+    fireEvent.click(view.button('auth-api-key'))
+    expect(view.keyForm().hidden).toBe(false)
+  })
+
+  it.each([
+    [undefined, false],
+    [required, true],
+  ] as const)('decides the entry from the initial read with capabilities %j', async (capabilities, hidden) => {
+    const view = mountDelayed()
+    await act(async () => { view.first.resolve(account(capabilities)) })
+    expect(view.button('api-key').hidden).toBe(hidden)
+    fireEvent.click(view.button('api-key'))
+    expect(view.keyForm().hidden).toBe(hidden)
+  })
+
+  it('ignores an initial read that resolves after a streamed snapshot', async () => {
+    const view = mountDelayed()
+    act(() => { view.api.onAccountState.mock.calls[0]![0](account(required)) })
+    await act(async () => { view.first.resolve(account()) })
+    expect(view.button('api-key').hidden).toBe(true)
+  })
+})

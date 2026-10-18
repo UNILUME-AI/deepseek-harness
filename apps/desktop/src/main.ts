@@ -1236,6 +1236,10 @@ async function main(): Promise<void> {
         skip: enterWorkspace,
       })
       const window = welcomeWindow
+      // The welcome page keeps API-key entry closed until it receives a first account snapshot.
+      void welcomeBackend?.account.state().then((state) => {
+        if (!window.isDestroyed()) window.webContents.send(WELCOME_IPC.state, state)
+      }).catch(() => undefined)
       window.once('closed', () => {
         void welcomeBackend?.account.state().then((state) => {
           if (state.attempt !== null && !enteredWorkspace) return welcomeBackend?.account.cancel(state.attempt.id)
