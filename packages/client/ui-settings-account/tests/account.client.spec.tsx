@@ -257,6 +257,55 @@ it.each([en, zh])('renders Platform profile and recharge wallet balances', async
   await expect(`${screen.getByRole('region').textContent}\n`).toMatchFileSnapshot(`./expected/details-${copy === en ? 'en' : 'zh'}.txt`)
 })
 
+it.each([en, zh])('keeps profile and account actions available without wallet UI', async (copy) => {
+  const operations = mount({ status: 'credential-stored', attempt: null, capabilities: { wallet: false } }, copy, {
+    profile: { status: 'ready', value: {
+      id: null, name: 'Account User', contact: 'u***@example.com', avatarUrl: 'https://example.test/avatar.png',
+    } },
+    balance: { status: 'ready', value: [{ currency: 'CNY', balance: '12.34' }],
+      bonusWallets: [{ currency: 'CNY', balance: '5.00' }] },
+  })
+  const section = screen.getByRole('region', { name: copy.nav })
+  expect(within(section).getByText('Account User')).toBeTruthy()
+  expect(within(section).getByText('u***@example.com')).toBeTruthy()
+  expect(section.querySelector('img')?.getAttribute('src')).toBe('https://example.test/avatar.png')
+  expect(section.querySelector(`.${css.balanceCard}`)).toBeNull()
+  expect(within(section).queryByText(copy.balance)).toBeNull()
+  expect(within(section).queryByText(copy.bonusBalance)).toBeNull()
+  expect(within(section).queryByText('¥12.34')).toBeNull()
+  expect(within(section).queryByText('¥5.00')).toBeNull()
+  for (const name of [copy.usage, copy.topUp, copy.accountInfo]) {
+    expect(within(section).queryByRole('link', { name })).toBeNull()
+  }
+
+  const { AccountMenu } = await import('../src/client/AccountMenu.tsx')
+  render(<AccountMenu {...({} as GlobalStandardProps)} {...operations} settingsOpen={false}
+    useAccount={selector => selector(operations.hooks.account.getSnapshot())}
+    useTheme={selector => selector(operations.hooks.theme.getSnapshot())} wide
+    openOnboarding={() => {}} openSettings={() => {}} t={key => copy[key as AccountKey]} />)
+  fireEvent.click(screen.getByRole('button', { name: copy.menu }))
+  fireEvent.click(screen.getByRole('menuitem', { name: copy.contactUs }))
+  expect(operations.contactUs).toHaveBeenCalledOnce()
+  fireEvent.click(screen.getByRole('button', { name: copy.menu }))
+  await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: copy.signOut })) })
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: copy.signOut })) })
+  expect(operations.signOut).toHaveBeenCalledOnce()
+})
+
+it('keeps wallet balances and destinations when capabilities are absent', () => {
+  mount({ status: 'credential-stored', attempt: null }, en, {
+    balance: { status: 'ready', value: [{ currency: 'CNY', balance: '12.34' }],
+      bonusWallets: [{ currency: 'CNY', balance: '5.00' }] },
+  })
+  expect(screen.getByText(en.balance)).toBeTruthy()
+  expect(screen.getByText('¥12.34')).toBeTruthy()
+  expect(screen.getByText(en.bonusBalance)).toBeTruthy()
+  expect(screen.getByText('¥5.00')).toBeTruthy()
+  expect(screen.getByRole('link', { name: en.usage }).getAttribute('href')).toBe('http://localhost:8081/usage')
+  expect(screen.getByRole('link', { name: en.topUp }).getAttribute('href')).toBe('http://localhost:8081/top_up')
+  expect(screen.getByRole('link', { name: en.accountInfo }).getAttribute('href')).toBe('http://localhost:8081/')
+})
+
 it.each([en, zh])('shows the signed-out settings prompt without balance or Platform links', async (copy) => {
   mount({ status: 'signed-out', attempt: null }, copy)
   expect(screen.getByText(copy.settingsSignedOutTitle)).toBeTruthy()

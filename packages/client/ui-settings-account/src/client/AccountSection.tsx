@@ -7,6 +7,7 @@ import type { PropsRuntime, PropsLocale, InjectFace, HostObservable } from '@dee
 import type { ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
 import type { PlatformPage, PlatformPages } from './platform-pages.ts'
 import { formatBalance } from './formatBalance.ts'
+import { supportsAccountWallet } from './account-capabilities.ts'
 import { AccountAvatar } from './AccountAvatar.tsx'
 import { authorizeUrlWithTheme } from './authorize-url.ts'
 import type { BonusNotice } from './bonus-notices.ts'
@@ -53,9 +54,9 @@ export interface AccountSectionInjected {
     theme: HostObservable<ThemeSnapshot>
   }
   /**
-   * Read the balance, bonus wallets and unnotified bonus once. The Settings launcher
+   * Read the profile and, when supported, balance and unnotified bonuses. The Settings launcher
    * calls it on each entry, and a page opener on return from top-up.
-   * @returns after both reads settle.
+   * @returns after supported queries settle.
    */
   refreshAccount: () => Promise<void>
   /** Open the external support questionnaire with the account, build and environment sampled by this click. */
@@ -90,20 +91,21 @@ export function AccountSection({ t, useAccount, useTheme, start, cancel, openPla
   const [failed, setFailed] = useState(false)
   const [busy, setBusy] = useState(false)
   const profile = details?.profile?.status === 'ready' ? details.profile.value : undefined
-  const wallets = details?.balance?.status === 'ready' ? details.balance.value : undefined
-  const bonusWallets = details?.balance?.status === 'ready'
+  const walletSupported = supportsAccountWallet(state)
+  const wallets = walletSupported && details?.balance?.status === 'ready' ? details.balance.value : undefined
+  const bonusWallets = walletSupported && details?.balance?.status === 'ready'
     ? details.balance.bonusWallets.filter(wallet => new Big(wallet.balance).gt(0)) : []
-  const showBonusRow = details?.balance?.status !== 'ready' || bonusWallets.length > 0
+  const showBonusRow = walletSupported && (details?.balance?.status !== 'ready' || bonusWallets.length > 0)
   const attempt = state?.attempt
   const active = attempt !== null && attempt !== undefined
     && ['initializing', 'waiting-browser', 'exchanging', 'committing'].includes(attempt.phase)
   const signedIn = state?.status === 'credential-stored'
   useEffect(() => () => { releasePage.current?.(); releasePage.current = undefined }, [])
   useEffect(() => {
-    if (signedIn) return
+    if (signedIn && walletSupported) return
     releasePage.current?.()
     releasePage.current = undefined
-  }, [signedIn])
+  }, [signedIn, walletSupported])
   const showPage = (open: PlatformPages['open'], page: PlatformPage) => {
     releasePage.current?.()
     releasePage.current = open(page, () => { releasePage.current = undefined })
@@ -161,7 +163,7 @@ export function AccountSection({ t, useAccount, useTheme, start, cancel, openPla
             <span className={css.status} role="status">{status}</span>
           </div>
         </div>
-        {signedIn && <a className={css.accountInfo} href={new URL('/', state.links.usageUrl).href} target="_blank" rel="noopener noreferrer">
+        {signedIn && walletSupported && <a className={css.accountInfo} href={new URL('/', state.links.usageUrl).href} target="_blank" rel="noopener noreferrer">
           {t('accountInfo')}<IconRightUpOutlineRegular size={12} />
         </a>}
       </div>
@@ -173,7 +175,7 @@ export function AccountSection({ t, useAccount, useTheme, start, cancel, openPla
         <Button variant="outline" disabled={busy || attempt.phase === 'committing'}
           onClick={() => { void run(() => cancel(attempt.id)) }}>{t('cancel')}</Button>
       </div>}
-      <div className={css.balanceCard}>
+      {walletSupported && <div className={css.balanceCard}>
         <div className={css.row}>
           <span>{t('balance')}</span>
           {signedIn && wallets !== undefined && wallets.length > 0
@@ -209,7 +211,7 @@ export function AccountSection({ t, useAccount, useTheme, start, cancel, openPla
               onClick={(event) => { if (openPlatformPage !== undefined && signedIn) { event.preventDefault(); showPage(openPlatformPage, 'top-up') } }}>{t('topUp')}</a>
           </div>
         </div>
-      </div>
+      </div>}
     </section>
   )
 }

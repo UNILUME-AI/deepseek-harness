@@ -219,3 +219,103 @@ it('releases the hold when a higher-priority entry unmounts this one', async () 
   expect(releaseHold).toHaveBeenCalledOnce()
   expect(spies.pages.getSnapshot()).toBeNull()
 })
+
+it.each([en, zh])('uses the generic notice without top-up controls when the account has no wallet', (copy) => {
+  vi.useFakeTimers()
+  const spies = pageSpies()
+  const dismiss = vi.fn()
+  const keepOpen = vi.fn(() => vi.fn())
+  const owner: QuotaNoticeOwnerProps = { code: 'ACCOUNT_QUOTA', message: noticeMessage, dismiss, keepOpen }
+  const account: AccountSnapshot = {
+    ...snapshot('credential-stored'),
+    view: { status: 'credential-stored', attempt: null, capabilities: { wallet: false }, links: { usageUrl: '', topUpUrl: '' } },
+  }
+  render(<AccountQuotaNotice {...({} as GlobalStandardProps)} {...owner} matched={owner}
+    openPlatformPage={spies.pages.open}
+    useAccount={selector => selector(account)}
+    usePlatformPage={selector => selector(spies.pages.getSnapshot())}
+    t={key => copy[key as AccountKey]} />)
+  expect(screen.getByRole('alert').textContent).toBe(noticeMessage)
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(screen.queryByRole('button', { name: copy.quotaTopUp })).toBeNull()
+  expect(keepOpen).not.toHaveBeenCalled()
+  expect(spies.open).not.toHaveBeenCalled()
+  expect(spies.pages.getSnapshot()).toBeNull()
+  act(() => { vi.runAllTimers() })
+  expect(dismiss).toHaveBeenCalledOnce()
+})
+
+function mountLiveWalletNotice(owner: QuotaNoticeOwnerProps, pages: PlatformPages, readAccount: () => AccountSnapshot) {
+  const element = () => <AccountQuotaNotice {...({} as GlobalStandardProps)} {...owner} matched={owner}
+    openPlatformPage={pages.open}
+    useAccount={selector => selector(readAccount())}
+    usePlatformPage={selector => selector(pages.getSnapshot())}
+    t={key => en[key as AccountKey]} />
+  const rendered = render(element())
+  const refresh = () => { rendered.rerender(element()) }
+  mountedSubscriptions.push(pages.subscribe(refresh))
+  return { refresh, unmount: rendered.unmount }
+}
+
+it('releases the top-up page and notice hold when wallet support disappears', async () => {
+  const spies = pageSpies()
+  const dismiss = vi.fn()
+  const releaseHold = vi.fn()
+  const keepOpen = vi.fn(() => releaseHold)
+  const owner: QuotaNoticeOwnerProps = { code: 'ACCOUNT_QUOTA', message: noticeMessage, dismiss, keepOpen }
+  let account = snapshot('credential-stored')
+  const rendered = mountLiveWalletNotice(owner, spies.pages, () => account)
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: en.quotaTopUp })) })
+  expect(spies.pages.getSnapshot()).toEqual({ page: 'top-up' })
+  expect(keepOpen).toHaveBeenCalledOnce()
+  expect(releaseHold).not.toHaveBeenCalled()
+  await act(async () => {
+    account = {
+      ...account,
+      view: { status: 'credential-stored', attempt: null, capabilities: { wallet: false }, links: { usageUrl: '', topUpUrl: '' } },
+    }
+    rendered.refresh()
+  })
+  expect(spies.pages.getSnapshot()).toBeNull()
+  expect(releaseHold).toHaveBeenCalledOnce()
+  expect(screen.getByRole('alert').textContent).toBe(noticeMessage)
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(screen.queryByRole('button', { name: en.quotaTopUp })).toBeNull()
+  expect(dismiss).not.toHaveBeenCalled()
+  rendered.unmount()
+  expect(releaseHold).toHaveBeenCalledOnce()
+})
+
+it('offers top-up again when wallet support returns before the generic notice expires', async () => {
+  vi.useFakeTimers()
+  const spies = pageSpies()
+  const dismiss = vi.fn()
+  const releaseHold = vi.fn()
+  const keepOpen = vi.fn(() => releaseHold)
+  const owner: QuotaNoticeOwnerProps = { code: 'ACCOUNT_QUOTA', message: noticeMessage, dismiss, keepOpen }
+  const accountWithWallet = (wallet: boolean): AccountSnapshot => ({
+    ...snapshot('credential-stored'),
+    view: { status: 'credential-stored', attempt: null, capabilities: { wallet }, links: { usageUrl: '', topUpUrl: '' } },
+  })
+  let account = accountWithWallet(true)
+  const rendered = mountLiveWalletNotice(owner, spies.pages, () => account)
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: en.quotaTopUp })) })
+  expect(spies.pages.getSnapshot()).toEqual({ page: 'top-up' })
+  await act(async () => { account = accountWithWallet(false); rendered.refresh() })
+  expect(spies.pages.getSnapshot()).toBeNull()
+  expect(releaseHold).toHaveBeenCalledOnce()
+  expect(screen.getByRole('alert').textContent).toBe(noticeMessage)
+  expect(dismiss).not.toHaveBeenCalled()
+
+  await act(async () => { account = accountWithWallet(true); rendered.refresh() })
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(screen.getByRole('dialog', { name: en.quotaTitle })).toBeTruthy()
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: en.quotaTopUp })) })
+  expect(spies.open).toHaveBeenCalledTimes(2)
+  expect(keepOpen).toHaveBeenCalledTimes(2)
+  expect(spies.pages.getSnapshot()).toEqual({ page: 'top-up' })
+  expect(dismiss).not.toHaveBeenCalled()
+  rendered.unmount()
+  expect(releaseHold).toHaveBeenCalledTimes(2)
+  expect(spies.pages.getSnapshot()).toBeNull()
+})

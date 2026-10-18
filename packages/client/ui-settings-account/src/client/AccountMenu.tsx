@@ -9,6 +9,7 @@ import { SignOutDialog } from './SignOutDialog.tsx'
 import { SignInDialog } from './SignInDialog.tsx'
 import { LogoutIcon } from './LogoutIcon.tsx'
 import { AccountAvatar } from './AccountAvatar.tsx'
+import { supportsAccountWallet } from './account-capabilities.ts'
 import { AccountNoticeCard } from './AccountNotice.tsx'
 import css from './AccountMenu.module.css'
 
@@ -57,7 +58,8 @@ export function AccountMenu({
   return <div ref={anchor} className={css.root}>
     {signInNotice > 0 && <Toast key={signInNotice} text={t('modelSignInRequired')} onDone={() => { setSignInNotice(0) }} />}
     {expiryNotice && <Toast text={t('sessionExpired')} onDone={() => { setExpiryNotice(false) }} />}
-    {signedIn && account.notice && <AccountNoticeCard key={account.notice.orderId} notice={account.notice}
+    {signedIn && supportsAccountWallet(account.view) && account.notice && <AccountNoticeCard
+      key={account.notice.orderId} notice={account.notice}
       anchor={anchor} title={t('bonusNoticeTitle')} closeLabel={t('close')}
       onShown={bonusNoticeShown} onDismiss={bonusNoticeDismissed} />}
     <Menu open={open} side="top" portal autoFocus className={css.anchor} listClassName={signedIn ? undefined : css.signedOutMenu}

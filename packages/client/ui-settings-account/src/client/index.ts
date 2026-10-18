@@ -21,6 +21,7 @@ import { createPlatformPages, type PlatformPages } from './platform-pages.ts'
 import { AccountSection, type AccountSnapshot, type AccountSectionInjected } from './AccountSection.tsx'
 import { createBonusNoticeController } from './bonus-notices.ts'
 import { accountClientMetadata } from './client-metadata.ts'
+import { supportsAccountWallet } from './account-capabilities.ts'
 import { en, zh, type AccountKey } from './locales.ts'
 import { AccountQuotaNotice, type AccountQuotaNoticeInjected } from './AccountQuotaNotice.tsx'
 import { DESKTOP_ONBOARDING_NAMESPACE, type OnboardingSettings } from '../onboarding-settings.ts'
@@ -94,11 +95,11 @@ export function apply(ctx: Context): void {
         if (!result.ok) throw new Error('account profile failed')
         return result.value
       }),
-      read('balance', async () => {
+      ...supportsAccountWallet(snapshot.view) ? [read('balance', async () => {
         const result = await ctx.remote.account.getBalance(client())
         if (!result.ok) throw new Error('account balance failed')
         return result.value
-      }),
+      })] : [],
     ]).then(() => undefined)
     refreshing = request
     void request.finally(() => { if (refreshing === request) refreshing = undefined })
@@ -118,9 +119,9 @@ export function apply(ctx: Context): void {
         && snapshot.view?.attempt?.phase !== 'succeeded'
       const { notice, ...previous } = snapshot
       publish({ ...previous, view: frame.value, details: undefined, failed: false,
-        ...(frame.value.status === 'credential-stored' && notice ? { notice } : {}) })
+        ...(frame.value.status === 'credential-stored' && supportsAccountWallet(frame.value) && notice ? { notice } : {}) })
       frame.accept()
-      if (frame.value.status === 'credential-stored') notices.begin()
+      if (frame.value.status === 'credential-stored' && supportsAccountWallet(frame.value)) notices.begin()
       else notices.end()
       if (initialize) void (async () => {
         try {
@@ -139,10 +140,12 @@ export function apply(ctx: Context): void {
   // lets an entry request one.
   const platformPages = createPlatformPages()
   ctx.effect(() => () => { platformPages.dispose() }, 'account: platform page request')
-  // One account refresh: the recharge/bonus wallet and the unnotified-bonus read,
-  // whichever surface asks — a Settings entry, or returning from top-up. Both
+  // One account refresh: the profile and supported wallet and unnotified-bonus reads,
+  // whichever surface asks — a Settings entry, or returning from top-up. The
   // reads are independent, and a concurrent refresh shares the in-flight request.
-  const refreshAccount = async (): Promise<void> => { await Promise.all([refresh(), notices.refresh()]) }
+  const refreshAccount = async (): Promise<void> => {
+    await Promise.all([refresh(), ...supportsAccountWallet(snapshot.view) ? [notices.refresh()] : []])
+  }
   /**
    * Narrow the shared channel to one surface's post-return read: only a viewer
    * returning from top-up re-reads, so a superseded page or a plugin teardown

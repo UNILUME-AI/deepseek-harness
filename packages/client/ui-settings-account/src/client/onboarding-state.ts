@@ -2,6 +2,7 @@
 import type { TranscriptViewMode } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { createSnapshotStore, shallowEqual } from '@deepseek-ai/dsh-client-store'
 import { hasOnboardingCredit } from './onboarding-balance.ts'
+import { supportsAccountWallet } from './account-capabilities.ts'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SettingsDescribeFace, ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { OnboardingProgress, OnboardingSettings } from '../onboarding-settings.ts'
@@ -77,7 +78,9 @@ export class DesktopOnboardingController {
     if (this.completing || (this.saving && this.draft === undefined) || this.disposed || this.account.getSnapshot().view?.status !== 'credential-stored') return false
     const current = this.draft ?? this.readProgress()
     if (current === undefined || current.step === 'done') return false
-    const next = { ...current, ...change }
+    const step = change.step ?? current.step
+    const next = { ...current, ...change,
+      step: step === 'credit' && !supportsAccountWallet(this.account.getSnapshot().view) ? 'purpose' as const : step }
     this.draft = next
     this.error = null
     const pending = this.updates.then(async () => {
@@ -201,8 +204,10 @@ export class DesktopOnboardingController {
     const snapshot = this.account.getSnapshot()
     const account = snapshot.view
     const signedIn = account?.status === 'credential-stored'
-    const progress = this.draft ?? this.readProgress() ?? freshProgress()
-    if (!signedIn) this.creditFunded = undefined
+    const savedProgress = this.draft ?? this.readProgress() ?? freshProgress()
+    const progress = savedProgress.step === 'credit' && !supportsAccountWallet(account)
+      ? { ...savedProgress, step: 'purpose' as const } : savedProgress
+    if (!signedIn || !supportsAccountWallet(account)) this.creditFunded = undefined
     else if (this.creditFunded === undefined && host.status === 'ready' && progress.step === 'credit') {
       this.creditFunded = hasOnboardingCredit(snapshot.details?.balance)
     }
