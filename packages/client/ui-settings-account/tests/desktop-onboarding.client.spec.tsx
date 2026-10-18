@@ -369,3 +369,96 @@ it('reports closing the skip-settings popup', () => {
   fireEvent.click(screen.getByRole('button', { name: zh.close }))
   expect(b.track).toHaveBeenCalledExactlyOnceWith('onboarding_popup_click', { popup_name: 'skip_setting', button_name: 'close' })
 })
+
+function mountWalletOnboarding(balance: 'zero' | 'failed' | 'loading', wallet: boolean | undefined, step: 'welcome' | 'credit' = 'welcome') {
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const readBalance = vi.fn((): NonNullable<NonNullable<DesktopOnboardingProps['account']['details']>['balance']> => balance === 'failed'
+    ? { status: 'failed' } : { status: 'ready', value: [{ currency: 'CNY', balance: '0' }], bonusWallets: [] })
+  let account: DesktopOnboardingProps['account'] = {
+    view: {
+      status: 'credential-stored', attempt: null,
+      links: { usageUrl: 'https://example.com/usage', topUpUrl: 'https://example.com/top_up' },
+      ...wallet === undefined ? {} : { capabilities: { wallet } },
+    },
+    failed: false,
+    details: balance === 'loading' ? {} : { get balance() { return readBalance() } },
+  }
+  const release = vi.fn()
+  const openPlatformPage = vi.fn(() => release)
+  const update = vi.fn(async (_change: Parameters<DesktopOnboardingProps['update']>[0]) => true)
+  function App() {
+    const [state, setState] = useState<DesktopOnboardingState>({
+      status: 'ready', visible: true, error: null, creditFunded: false,
+      progress: { version: 1, step, purpose: null, process: null, completion: null, usage: 'compact', developerTools: false },
+    })
+    return <DesktopOnboarding state={state} account={account} locale="zh" t={key => zh[key]}
+      complete={async () => true} retry={async () => true} openPlatformPage={openPlatformPage}
+      update={async (change) => {
+        const saved = await update(change)
+        if (saved) setState(current => ({ ...current, progress: { ...current.progress, ...change } }))
+        return saved
+      }} />
+  }
+  const view = render(<App />)
+  return {
+    readBalance, openPlatformPage, release, update,
+    changeWallet(value: boolean) {
+      account = { ...account, view: { ...account.view!, capabilities: { wallet: value } } }
+      view.rerender(<App />)
+    },
+  }
+}
+
+it.each(['zero', 'failed', 'loading'] as const)('skips recharge and balance reads for an account without a wallet and %s credit', async (balance) => {
+  const operations = mountWalletOnboarding(balance, false)
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: zh.onboardingStart })) })
+  expect(operations.update).toHaveBeenCalledWith({ step: 'purpose' })
+  expect(document.querySelector('[data-desktop-onboarding="purpose"]')).not.toBeNull()
+  expect(screen.queryByRole('button', { name: zh.onboardingTopUp })).toBeNull()
+  expect(screen.queryByRole('dialog', { name: zh.onboardingNoCreditTitle })).toBeNull()
+  expect(operations.readBalance).not.toHaveBeenCalled()
+  expect(operations.openPlatformPage).not.toHaveBeenCalled()
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: zh.onboardingBack })) })
+  expect(operations.update).toHaveBeenLastCalledWith({ step: 'welcome' })
+  expect(screen.getByRole('button', { name: zh.onboardingStart })).toBeTruthy()
+})
+
+it('resumes saved credit at purpose without reading balance when the account has no wallet', () => {
+  const operations = mountWalletOnboarding('zero', false, 'credit')
+  expect(document.querySelector('[data-desktop-onboarding="purpose"]')).not.toBeNull()
+  expect(screen.queryByRole('button', { name: zh.onboardingTopUp })).toBeNull()
+  expect(screen.queryByRole('dialog', { name: zh.onboardingNoCreditTitle })).toBeNull()
+  expect(operations.readBalance).not.toHaveBeenCalled()
+  expect(operations.openPlatformPage).not.toHaveBeenCalled()
+})
+
+it('retains recharge and zero-credit confirmation when account capabilities are absent', async () => {
+  const operations = mountWalletOnboarding('zero', undefined)
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: zh.onboardingStart })) })
+  expect(operations.update).toHaveBeenCalledWith({ step: 'credit' })
+  expect(screen.getByRole('button', { name: zh.onboardingTopUp })).toBeTruthy()
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: zh.onboardingLater })) })
+  expect(screen.getByRole('dialog', { name: zh.onboardingNoCreditTitle })).toBeTruthy()
+  expect(operations.readBalance).toHaveBeenCalled()
+  expect(operations.openPlatformPage).not.toHaveBeenCalled()
+})
+
+it.each(['confirmation', 'page'] as const)('closes the recharge %s when an account disables its wallet', async (surface) => {
+  const operations = mountWalletOnboarding('zero', true, 'credit')
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: surface === 'confirmation' ? zh.onboardingLater : zh.onboardingTopUp }))
+  })
+  if (surface === 'confirmation') expect(screen.getByRole('dialog', { name: zh.onboardingNoCreditTitle })).toBeTruthy()
+  else {
+    expect(operations.openPlatformPage).toHaveBeenCalledOnce()
+    expect(operations.release).not.toHaveBeenCalled()
+  }
+  operations.readBalance.mockClear()
+  act(() => { operations.changeWallet(false) })
+  expect(screen.queryByRole('dialog', { name: zh.onboardingNoCreditTitle })).toBeNull()
+  expect(screen.queryByRole('button', { name: zh.onboardingTopUp })).toBeNull()
+  expect(document.querySelector('[data-desktop-onboarding="purpose"]')).not.toBeNull()
+  expect(operations.readBalance).not.toHaveBeenCalled()
+  if (surface === 'page') expect(operations.release).toHaveBeenCalledOnce()
+  else expect(operations.release).not.toHaveBeenCalled()
+})

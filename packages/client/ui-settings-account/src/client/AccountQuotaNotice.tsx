@@ -5,6 +5,7 @@ import type { InjectFace, HostObservable, PropsLocale, PropsRuntime } from '@dee
 import type { QuotaNoticeOwnerProps } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { AccountSnapshot } from './AccountSection.tsx'
 import type { PlatformPageClaim, PlatformPages } from './platform-pages.ts'
+import { supportsAccountWallet } from './account-capabilities.ts'
 
 /** Injected share of the account route's frame-wide quota notice entry. */
 export interface AccountQuotaNoticeInjected {
@@ -29,6 +30,7 @@ type AccountQuotaNoticeProps = PropsRuntime<'shell.quota-notice'>
 export function AccountQuotaNotice({ matched, openPlatformPage, useAccount, usePlatformPage, t }: AccountQuotaNoticeProps) {
   const { dismiss, keepOpen, message } = matched
   const accountStatus = useAccount(snapshot => snapshot.view?.status)
+  const walletSupported = useAccount(snapshot => supportsAccountWallet(snapshot.view))
   const accountFailed = useAccount(snapshot => snapshot.failed)
   const signedIn = accountStatus === 'credential-stored'
   const platformPage = usePlatformPage(current => current)
@@ -47,6 +49,11 @@ export function AccountQuotaNotice({ matched, openPlatformPage, useAccount, useP
   }
   useEffect(() => releaseClaims, [])
   useEffect(() => {
+    if (walletSupported) return
+    releaseClaims()
+    setOpened(false)
+  }, [walletSupported])
+  useEffect(() => {
     // The notice outlives the panel that raised it, so only a real sign-out takes
     // the balance surface down; the first, still unloaded snapshot must not.
     if (previousSignedIn.current && !signedIn) {
@@ -59,8 +66,8 @@ export function AccountQuotaNotice({ matched, openPlatformPage, useAccount, useP
   // notice before the native account action becomes available. A terminal stream
   // failure ends that wait and leaves the generic warning available.
   if (accountStatus === undefined && !accountFailed && openPlatformPage !== undefined) return null
-  // Signed out, unavailable, or without the native host, use generic notice copy.
-  if (!signedIn || openPlatformPage === undefined) {
+  // Without an available account wallet and native host, use generic notice copy.
+  if (!signedIn || !walletSupported || openPlatformPage === undefined) {
     return <Toast text={message} icon={<IconWarningOutlineRegular size={18} />} onDone={dismiss} />
   }
   // Defer the Modal until the native page closes; do not mount hidden focus or

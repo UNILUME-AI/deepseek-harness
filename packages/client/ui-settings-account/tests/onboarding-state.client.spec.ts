@@ -550,3 +550,32 @@ it.each(['current', 'invalidated', 'disposed'] as const)('contains a rejected %s
   expect(h.mutate).not.toHaveBeenCalled()
   expect(h.controller.state.getSnapshot().progress.step).toBe('welcome')
 })
+
+it('does not inspect balance while entering onboarding credit for an account without a wallet', async () => {
+  const h = await harness({ status: 'credential-stored' })
+  const readBalance = vi.fn((): NonNullable<NonNullable<AccountSnapshot['details']>['balance']> => ({
+    status: 'ready', value: [{ currency: 'CNY', balance: '0' }], bonusWallets: [],
+  }))
+  h.account.set({
+    ...h.account.getSnapshot(),
+    view: { ...h.account.getSnapshot().view!, capabilities: { wallet: false } },
+    details: Object.freeze({ get balance() { return readBalance() } }),
+  })
+  expect(await h.controller.update({ step: 'credit' })).toBe(true)
+  expect(h.controller.state.getSnapshot()).toMatchObject({ visible: true, progress: { step: 'purpose' }, creditFunded: false })
+  expect(readBalance).not.toHaveBeenCalled()
+})
+
+it('resumes saved credit without inspecting balance after an account disables its wallet', async () => {
+  const h = await harness({ status: 'credential-stored', progress: { step: 'credit' } })
+  const readBalance = vi.fn((): NonNullable<NonNullable<AccountSnapshot['details']>['balance']> => ({
+    status: 'ready', value: [{ currency: 'CNY', balance: '5' }], bonusWallets: [],
+  }))
+  h.account.set({
+    ...h.account.getSnapshot(),
+    view: { ...h.account.getSnapshot().view!, capabilities: { wallet: false } },
+    details: Object.freeze({ get balance() { return readBalance() } }),
+  })
+  expect(h.controller.state.getSnapshot()).toMatchObject({ visible: true, progress: { step: 'purpose' }, creditFunded: false })
+  expect(readBalance).not.toHaveBeenCalled()
+})

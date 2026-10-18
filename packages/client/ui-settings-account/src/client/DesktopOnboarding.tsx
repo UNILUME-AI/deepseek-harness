@@ -3,6 +3,7 @@ import type { ProductEventMap } from '@deepseek-ai/dsh-client-product-analytics/
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { hasOnboardingCredit } from './onboarding-balance.ts'
+import { supportsAccountWallet } from './account-capabilities.ts'
 import { OnboardingSurface } from './OnboardingSurface.tsx'
 import type { DesktopOnboardingProps } from './onboarding-contract.ts'
 import { OnboardingWelcomeStep } from './OnboardingWelcomeStep.tsx'
@@ -36,8 +37,16 @@ export function DesktopOnboarding({
   const releaseRecharge = useRef<(() => void) | undefined>(undefined)
   useEffect(() => () => { releaseRecharge.current?.(); releaseRecharge.current = undefined }, [])
   const progress = state.progress
-  const targetStep = progress.step
-  const [step, setStep] = useState(targetStep)
+  const walletSupported = supportsAccountWallet(account.view)
+  const targetStep = !walletSupported && progress.step === 'credit' ? 'purpose' : progress.step
+  const [displayedStep, setStep] = useState(targetStep)
+  const step = !walletSupported && displayedStep === 'credit' ? 'purpose' : displayedStep
+  useEffect(() => {
+    if (walletSupported) return
+    releaseRecharge.current?.()
+    releaseRecharge.current = undefined
+    setDialog(current => current === 'credit' || current === 'credit-skip' ? null : current)
+  }, [walletSupported])
   const busy = state.status === 'loading' || state.status === 'saving' || exiting || step !== targetStep
   useEffect(() => {
     if (step === targetStep) return
@@ -85,14 +94,16 @@ export function DesktopOnboarding({
     track?.('onboarding_page_click', { page_name: pageName, button_name, ...selected_content === undefined ? {} : { selected_content } })
   }
   const go = (next: 'welcome' | 'credit' | 'purpose' | 'process') => { void update({ step: next }) }
-  const canRecharge = openPlatformPage !== undefined
+  const canRecharge = walletSupported && openPlatformPage !== undefined
   const recharge = () => {
+    if (!walletSupported) return
     setDialog(null)
     releaseRecharge.current?.()
     // Every control that reaches this is disabled without the callback.
     releaseRecharge.current = openPlatformPage?.('top-up', () => { releaseRecharge.current = undefined })
   }
   const later = () => {
+    if (!walletSupported) { go('purpose'); return }
     const balance = account.details?.balance
     if (balance?.status === 'ready' && !hasOnboardingCredit(balance)) setDialog('credit')
     else go('purpose')
@@ -104,7 +115,7 @@ export function DesktopOnboarding({
   return <>
     <OnboardingSurface exiting={exiting}>
       <section key={step} ref={page} className={`${css.page} ${dialog !== null ? css.blurred : ''}`} data-desktop-onboarding={step} lang={locale} aria-labelledby="desktop-onboarding-title" aria-busy={busy}>
-        {step === 'welcome' && <OnboardingWelcomeStep t={t} locale={locale} heading={heading} busy={busy} onStart={() => { click('next'); go('credit') }} />}
+        {step === 'welcome' && <OnboardingWelcomeStep t={t} locale={locale} heading={heading} busy={busy} onStart={() => { click('next'); go(walletSupported ? 'credit' : 'purpose') }} />}
         {step === 'credit' && <OnboardingCreditStep t={t} locale={locale} heading={heading} busy={busy}
           funded={state.creditFunded} canRecharge={canRecharge} onContinue={() => { click('continue'); go('purpose') }} onRecharge={() => { click('charge'); recharge() }} onLater={() => { click('later'); later() }} />}
         {step === 'purpose' && <OnboardingPurposeStep t={t} heading={heading} busy={busy} purpose={progress.purpose}
@@ -113,7 +124,7 @@ export function DesktopOnboarding({
           onSelect={(process) => { void update({ process }) }} onComplete={() => { click('next'); void complete('completed') }} />}
         {state.error !== null && <div className={css.status} role="alert">{t('onboardingSaveFailed')}<Button disabled={busy} onClick={() => { void retry() }}>{t('onboardingRetry')}</Button></div>}
         {step !== 'welcome' && <footer className={css.navigation}>
-          <button type="button" disabled={busy} onClick={() => { click('back'); go(step === 'credit' ? 'welcome' : step === 'purpose' ? 'credit' : 'purpose') }}><span className={css.backIcon} style={{ maskImage: `url(${backIcon})` }} aria-hidden="true" />{t('onboardingBack')}</button>
+          <button type="button" disabled={busy} onClick={() => { click('back'); go(step === 'credit' ? 'welcome' : step === 'purpose' ? walletSupported ? 'credit' : 'welcome' : 'purpose') }}><span className={css.backIcon} style={{ maskImage: `url(${backIcon})` }} aria-hidden="true" />{t('onboardingBack')}</button>
           <button type="button" disabled={busy} onClick={() => { click('skip'); setDialog(step === 'credit' ? 'credit-skip' : 'skip') }}>{t('onboardingSkip')}</button>
         </footer>}
       </section>
