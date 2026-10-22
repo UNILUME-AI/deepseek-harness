@@ -33,7 +33,8 @@ export function resolveDesktopBrand(env = process.env) {
   const brand = json('brand.json')
   const productName = brand.productName ?? DEFAULT_PRODUCT_NAME
   // The product name becomes the application bundle and executable file name.
-  if (typeof productName !== 'string' || !/^[^\\/:*?"<>|]+$/u.test(productName.trim())) {
+  if (typeof productName !== 'string' || productName !== productName.trim() || productName.endsWith('.')
+    || !/^[^\\/:*?"<>|]+$/u.test(productName)) {
     throw new Error('desktop brand: brand.json productName must be a non-empty file name')
   }
   const appName = Object.fromEntries(LANGUAGES.map(language => [language, brand.appName?.[language] ?? productName]))
