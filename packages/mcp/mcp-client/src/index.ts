@@ -22,7 +22,7 @@ import type { ReconnectConfig } from './connection.ts'
 import { registerServerContext } from './server-context.ts'
 import type { McpToolDecorator } from './tools.ts'
 // Side-effect type import: declaration-merges `ctx.tools` onto Context.
-import type {} from '@deepseek-ai/dsh-tools'
+import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 
 export { createMcpToolDefinition } from './tools.ts'
 export type { McpResult, McpSiblingCall, McpToolDecorator, McpToolDefinitionOptions } from './tools.ts'
@@ -84,6 +84,14 @@ export interface StdioConfig {
    * non-function value rejects plugin activation.
    */
   decorateTool?: McpToolDecorator
+  /**
+   * Programmatic hook run before each tool request, including decorator sibling calls.
+   * Throws reject the invocation without sending a request; non-function values reject activation.
+   * @param execution - exact ToolRuntime invocation requesting the call.
+   * @param rawName - upstream tool name sent to the server.
+   * @returns request `params._meta`, or undefined to omit it.
+   */
+  callMeta?: (execution: ToolExecution, rawName: string) => Record<string, unknown> | undefined
 }
 
 /** Config for connecting to an MCP server over Streamable HTTP (SSE). */
@@ -117,6 +125,14 @@ export interface StreamableHttpConfig {
    * non-function value rejects plugin activation.
    */
   decorateTool?: McpToolDecorator
+  /**
+   * Programmatic hook run before each tool request, including decorator sibling calls.
+   * Throws reject the invocation without sending a request; non-function values reject activation.
+   * @param execution - exact ToolRuntime invocation requesting the call.
+   * @param rawName - upstream tool name sent to the server.
+   * @returns request `params._meta`, or undefined to omit it.
+   */
+  callMeta?: (execution: ToolExecution, rawName: string) => Record<string, unknown> | undefined
 }
 
 /** Configuration for one stdio or Streamable HTTP MCP server. */
@@ -177,6 +193,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // function can never succeed; YAML configuration never carries this field.
   if (config.decorateTool !== undefined && typeof config.decorateTool !== 'function') {
     throw new Error(`mcp-client(${config.serverName}): decorateTool must be a function when provided`)
+  }
+  if (config.callMeta !== undefined && typeof config.callMeta !== 'function') {
+    throw new Error(`mcp-client(${config.serverName}): callMeta must be a function when provided`)
   }
   // Fail loud at load: reconnect misconfiguration (including programmatic
   // construction that bypassed Schemastery) rejects THIS instance before any

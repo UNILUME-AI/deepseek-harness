@@ -5,11 +5,17 @@
  * Run: node fixture-server.ts
  */
 
+import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { McpServer, type CallToolResult } from '@modelcontextprotocol/server'
 import { serveStdio } from '@modelcontextprotocol/server/stdio'
 import { z } from 'zod'
 
-function createFixtureServer(): McpServer {
+/**
+ * Create the controlled MCP tools without acquiring a transport.
+ * @returns a server with the fixture's registered tools.
+ */
+export function createFixtureServer(): McpServer {
   const server = new McpServer(
     { name: 'fixture-server', version: '1.0.0' },
     { capabilities: { tools: { listChanged: true } } },
@@ -75,4 +81,6 @@ function createFixtureServer(): McpServer {
   return server
 }
 
-serveStdio(createFixtureServer)
+if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  serveStdio(createFixtureServer)
+}

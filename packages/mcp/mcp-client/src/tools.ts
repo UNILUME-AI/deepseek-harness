@@ -14,7 +14,7 @@
 
 import { createHash } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
-import { specTypeSchemas, type Client, type ImageContent } from '@modelcontextprotocol/client'
+import { specTypeSchemas, type CallToolRequest, type Client, type ImageContent } from '@modelcontextprotocol/client'
 import type { Context } from '@deepseek-ai/cordis'
 import { isImageAdmissionError } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentStore, ImageAttachmentRef, ImageMediaType, SaveImageAttachment } from '@deepseek-ai/dsh-attachment'
@@ -35,6 +35,13 @@ export interface ToolBridgeOptions {
   maxPresentationMetaBytes: number
   /** Optional per-tool adaptation applied at every tool synchronization before registration. */
   decorateTool?: McpToolDecorator
+  /**
+   * Obtain metadata before each tool request; throws reject the invocation without sending it.
+   * @param execution - exact ToolRuntime invocation requesting the call.
+   * @param rawName - upstream tool name sent to the server.
+   * @returns request `params._meta`, or undefined to omit it.
+   */
+  callMeta?: (execution: ToolExecution, rawName: string) => Record<string, unknown> | undefined
 }
 
 /** State for one sync generation: the current set of disposers keyed by public name. */
@@ -173,8 +180,8 @@ export async function syncTools(
       inputSchema: tool.inputSchema,
       outputSchema: tool.outputSchema,
       taskRequired: tool.execution?.taskSupport === 'required',
-      call: (args, execution) => client.callTool(
-        { name: tool.name, arguments: args },
+      call: async (args, execution) => client.callTool(
+        createCallParams(opts, tool.name, args, execution),
         { signal: execution.signal, timeout: opts.toolCallTimeoutMs, toolDefinition: tool },
       ),
       maxPresentationMetaBytes: opts.maxPresentationMetaBytes,
@@ -182,8 +189,8 @@ export async function syncTools(
     const decorate = opts.decorateTool
     const decorated = decorate === undefined
       ? options
-      : decorate(options, (rawName, args, execution) => client.callTool(
-        { name: rawName, arguments: args },
+      : decorate(options, async (rawName, args, execution) => client.callTool(
+        createCallParams(opts, rawName, args, execution),
         { signal: execution.signal, timeout: opts.toolCallTimeoutMs },
       ))
     if (decorated !== undefined) definitions.set(publicName, createMcpToolDefinition(ctx, decorated))
@@ -206,6 +213,23 @@ export async function syncTools(
     return new Map()
   }
   return disposers
+}
+
+/** Build tool request parameters; metadata hook failures prevent dispatch. */
+function createCallParams(
+  opts: ToolBridgeOptions,
+  rawName: string,
+  args: Record<string, unknown>,
+  execution: ToolExecution,
+): CallToolRequest['params'] {
+  let meta: Record<string, unknown> | undefined
+  try {
+    meta = opts.callMeta?.(execution, rawName)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`mcp-client(${opts.serverName}): callMeta failed for tool "${rawName}": ${message}`, { cause: error })
+  }
+  return { name: rawName, arguments: args, ...meta === undefined ? {} : { _meta: meta } }
 }
 
 /** Fields read from canonical content, including policy-owned value replacements. */
