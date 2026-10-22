@@ -31,6 +31,11 @@ function brandDirectory(files: Readonly<Record<string, string>>): string {
 }
 
 describe('desktop brand directory', () => {
+  it.each([' Acme Desk', 'Acme Desk ', '\tAcme Desk', 'Acme Desk\n', 'Acme Desk.', '.', '   '])('rejects productName %j with surrounding whitespace or a trailing dot', (productName) => {
+    const root = brandDirectory({ 'brand.json': JSON.stringify({ productName }) })
+    expect(() => resolveDesktopBrand({ DSH_DESKTOP_BRAND_DIR: root })).toThrow('productName')
+  })
+
   it('keeps the shipped brand without a brand directory', () => {
     const brand = resolveDesktopBrand({})
     expect(brand).toEqual({

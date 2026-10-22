@@ -240,11 +240,11 @@ Each target owns its packed package inputs, prepared runtime, package set, dsh t
 
 ### Replace the brand
 
-A downstream distributor sets `DSH_DESKTOP_BRAND_DIR` to an absolute directory path to ship Desktop under its own product name, icons, welcome-window logo, and copy. The brand is fixed at build time: `pnpm run build` inlines the copy into the main-process and preload bundles, and electron-builder reads the product name and images while packaging. The installed application never reads the directory. Each absent entry keeps the shipped value. A relative or missing directory, unparsable JSON, a `productName` that is not a file name, or a `locale.json` key absent from `src/locale.ts` fails the build.
+A downstream distributor sets `DSH_DESKTOP_BRAND_DIR` to an absolute directory path to ship Desktop under its own product name, icons, welcome-window logo, and copy. The brand is fixed at build time: `pnpm run build` inlines the copy into the main-process and preload bundles, and electron-builder reads the product name and images while packaging. The installed application never reads the directory. Each absent entry keeps the shipped value. A relative or missing directory, unparsable JSON, a `productName` that is not a file name or has surrounding whitespace or a trailing dot, or a `locale.json` key absent from `src/locale.ts` fails the build.
 
 | Entry | Replaces | When absent |
 |---|---|---|
-| `brand.json` `productName` | Installer, application bundle, and executable name; product name in Windows installer messages | `DeepSeek Harness` |
+| `brand.json` `productName` | Installer, application bundle, and executable name, including the executable targeted by the packaged `dsh` terminal command; product name in Windows installer messages | `DeepSeek Harness` |
 | `brand.json` `appName.en`, `appName.zh` | `{appName}` in the English or Chinese copy of `src/locale.ts`; the English value also names the product in the macOS microphone prompt | `productName` |
 | `icon-macos.png` | macOS application icon | `resources/icon-macos.png` |
 | `icon-windows.png` | Windows application, installer, and About-panel icon | `resources/icon-windows.png` |

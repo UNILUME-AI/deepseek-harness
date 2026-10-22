@@ -242,11 +242,11 @@ macOS arm64 命令要求 Apple Silicon。macOS x64 命令可以在 Intel macOS �
 
 ### 替换品牌
 
-下游发行方把 `DSH_DESKTOP_BRAND_DIR` 设为一个绝对目录路径，即可用自己的产品名、图标、欢迎窗标志和文字发布 Desktop。品牌在构建时固定：`pnpm run build` 把文字内联进主进程和 preload 产物，electron-builder 在打包时读取产品名和图片。安装后的应用从不读取该目录。目录缺少的每一项都保留随附的默认值。目录为相对路径或不存在、JSON 无法解析、`productName` 不能作文件名，或 `locale.json` 含 `src/locale.ts` 没有的键时，构建失败。
+下游发行方把 `DSH_DESKTOP_BRAND_DIR` 设为一个绝对目录路径，即可用自己的产品名、图标、欢迎窗标志和文字发布 Desktop。品牌在构建时固定：`pnpm run build` 把文字内联进主进程和 preload 产物，electron-builder 在打包时读取产品名和图片。安装后的应用从不读取该目录。目录缺少的每一项都保留随附的默认值。目录为相对路径或不存在、JSON 无法解析、`productName` 不能作文件名、首尾有空白或以句点结尾，或 `locale.json` 含 `src/locale.ts` 没有的键时，构建失败。
 
 | 项 | 替换内容 | 缺失时 |
 |---|---|---|
-| `brand.json` `productName` | 安装包、应用包和可执行文件名；Windows 安装程序提示中的产品名 | `DeepSeek Harness` |
+| `brand.json` `productName` | 安装包、应用包和可执行文件名，包括打包后的 `dsh` 终端命令指向的可执行文件；Windows 安装程序提示中的产品名 | `DeepSeek Harness` |
 | `brand.json` `appName.en`、`appName.zh` | `src/locale.ts` 英文或中文文字里的 `{appName}`；英文值同时用于 macOS 麦克风权限提示中的产品名 | `productName` |
 | `icon-macos.png` | macOS 应用图标 | `resources/icon-macos.png` |
 | `icon-windows.png` | Windows 应用、安装程序和关于面板图标 | `resources/icon-windows.png` |
