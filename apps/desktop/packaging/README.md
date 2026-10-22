@@ -22,6 +22,7 @@ Build Desktop installers locally or through Windows or macOS Actions, choose dep
 - [macOS release signing and diagnostics](#macos-release-signing)
 - [Directory builds and preparation](#directory-and-preparation)
 - [Local packs](#local-packs)
+- [Replace the brand](#replace-the-brand)
 - [Local Official bundles from a loopback registry](#local-official-bundles-from-a-loopback-registry)
 - [Runtime file selection and installation checks](#runtime-file-selection)
 - [Desktop runtime preparation](#desktop-runtime-preparation)
@@ -218,6 +219,24 @@ An ignored repository-root `local-packs/` directory can contain one plugin packa
 `local-packs/bundle.patch.yml` appends after `packages/bundle/web-app/cordis.patch.yml` and applies to Web and Desktop profiles. `local-packs/base.patch.yml` appends after `packages/bundle/base/cordis.patch.yml`. Patch entries use the normal Cordis patch format and package names. With no local packages or overlays, these additions have no effect.
 
 A source launch reads only the `local-packs/` directory beside the nearest `pnpm-workspace.yaml` above the real `@deepseek-ai/dsh` package, so it never reads a parent directory or, from a nested worktree, the main checkout. Desktop packaging includes every local package in the prepared dependency closure and stages the overlays and `local-packs/.packages.json` in the runtime root; the index is written even when it is empty. The packaged runtime reads only that index and the overlays beside it. An installation under any other `node_modules` has no local packs.
+
+<a id="replace-the-brand"></a>
+
+## Replace the brand
+
+A downstream distributor sets `DSH_DESKTOP_BRAND_DIR` to an absolute directory path to ship Desktop under its own product name, icons, welcome-window logo, and copy. The brand is fixed at build time: `pnpm run build` inlines the copy into the main-process and preload bundles, and electron-builder reads the product name and images while packaging. The installed application never reads the directory. Each absent entry keeps the shipped value. A relative or missing directory, unparsable JSON, a `productName` that is not a file name, or a `locale.json` key absent from `src/locale.ts` fails the build.
+
+| Entry | Replaces | When absent |
+|---|---|---|
+| `brand.json` `productName` | Installer, application bundle, and executable name; product name in Windows installer messages | `DeepSeek Harness` |
+| `brand.json` `appName.en`, `appName.zh` | `{appName}` in the English or Chinese copy of `src/locale.ts`; the English value also names the product in the macOS microphone prompt | `productName` |
+| `icon-macos.png` | macOS application icon | `resources/icon-macos.png` |
+| `icon-windows.png` | Windows application, installer, and About-panel icon | `resources/icon-windows.png` |
+| `tray-windows.ico` | Windows tray icon | `resources/tray-windows.ico` |
+| `welcome-brand.svg` | Welcome-window logo, `renderer/assets/welcome-brand.svg` | Shipped logo |
+| `locale.json` | `{ "en": { "<key>": "…" }, "zh": { … } }` replaces each named key of `src/locale.ts`; a value may contain `{appName}` | Shipped copy |
+
+No packaging step reads `resources/icon.png`, which is source artwork, so the directory has no `icon.png` entry. Artifact file names keep the `deepseek-harness-` prefix that upload and update-feed scripts match. An unpackaged development launch shows the copy of its last build with Electron's name and icons. The English `welcomeKeyDescription` calls the product "Harness" without the full name; replace it through `locale.json`.
 
 <a id="local-official-bundles-from-a-loopback-registry"></a>
 

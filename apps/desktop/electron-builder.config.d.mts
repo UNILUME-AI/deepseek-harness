@@ -4,6 +4,7 @@ import type { AfterPackContext, BeforePackContext } from 'app-builder-lib'
 export interface DesktopElectronBuilderConfig {
   readonly appId: string
   readonly artifactName: string
+  readonly productName: string
   readonly protocols: readonly [{ readonly name: 'DeepSeek Harness'; readonly schemes: readonly ['dsh'] }]
   readonly directories: {
     readonly output: string
@@ -12,6 +13,7 @@ export interface DesktopElectronBuilderConfig {
     ...string[],
     { readonly from: string, readonly to: 'dsh', readonly filter: readonly ['**/*'] },
     { readonly from: string, readonly to: 'dsh/node_modules', readonly filter: readonly ['**/*'] },
+    ...(string | { readonly from: string, readonly to: 'renderer/assets', readonly filter: readonly ['welcome-brand.svg'] })[],
   ]
   readonly extraMetadata: { readonly dshDesktopAppId: string }
   readonly asarUnpack: readonly string[]
@@ -21,6 +23,7 @@ export interface DesktopElectronBuilderConfig {
     ...{ readonly from: string, readonly to: 'tray.ico' }[],
   ]
   readonly mac: {
+    readonly icon: string
     readonly extendInfo: { readonly NSMicrophoneUsageDescription: string }
     readonly entitlements: string
     readonly entitlementsInherit: string
@@ -35,6 +38,7 @@ export interface DesktopElectronBuilderConfig {
     readonly writeUpdateInfo: boolean
   }
   readonly win: {
+    readonly icon: string
     readonly forceCodeSigning: boolean
     readonly signtoolOptions: {
       readonly publisherName: string | undefined

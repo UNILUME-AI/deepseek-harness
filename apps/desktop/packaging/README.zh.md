@@ -22,6 +22,7 @@ description: "在本地或 Windows／macOS Actions 中生成 Desktop 安装包�
 - [macOS 发布签名与诊断](#macos-release-signing)
 - [目录构建与准备](#directory-and-preparation)
 - [本地插件包](#local-packs)
+- [替换品牌](#replace-the-brand)
 - [用回环 registry 安装本地 Official 包](#local-official-bundles-from-a-loopback-registry)
 - [运行时文件筛选与安装检查](#runtime-file-selection)
 - [Desktop 运行时准备](#desktop-runtime-preparation)
@@ -218,6 +219,24 @@ pnpm run prepare:desktop
 `local-packs/bundle.patch.yml` 追加在 `packages/bundle/web-app/cordis.patch.yml` 之后，对 Web 与 Desktop profile 均生效。`local-packs/base.patch.yml` 追加在 `packages/bundle/base/cordis.patch.yml` 之后。补丁行使用常规 Cordis 补丁格式与包名。没有本地包或补丁时，这些扩展不产生影响。
 
 源码启动只读取 `@deepseek-ai/dsh` 真实包目录之上最近的 `pnpm-workspace.yaml` 旁的 `local-packs/`，因此不会读取上层目录，嵌套 worktree 也不会读取主检出的本地包。Desktop 打包会把全部本地包放入准备好的依赖闭包，并把补丁文件和 `local-packs/.packages.json` 暂存到 runtime 根目录；即使没有本地包也会写出该索引。打包后的 runtime 只读取该索引及其旁的补丁文件。安装在其他 `node_modules` 下的 dsh 没有本地包。
+
+<a id="replace-the-brand"></a>
+
+## 替换品牌
+
+下游发行方把 `DSH_DESKTOP_BRAND_DIR` 设为一个绝对目录路径，即可用自己的产品名、图标、欢迎窗标志和文字发布 Desktop。品牌在构建时固定：`pnpm run build` 把文字内联进主进程和 preload 产物，electron-builder 在打包时读取产品名和图片。安装后的应用从不读取该目录。目录缺少的每一项都保留随附的默认值。目录为相对路径或不存在、JSON 无法解析、`productName` 不能作文件名，或 `locale.json` 含 `src/locale.ts` 没有的键时，构建失败。
+
+| 项 | 替换内容 | 缺失时 |
+|---|---|---|
+| `brand.json` `productName` | 安装包、应用包和可执行文件名；Windows 安装程序提示中的产品名 | `DeepSeek Harness` |
+| `brand.json` `appName.en`、`appName.zh` | `src/locale.ts` 英文或中文文字里的 `{appName}`；英文值同时用于 macOS 麦克风权限提示中的产品名 | `productName` |
+| `icon-macos.png` | macOS 应用图标 | `resources/icon-macos.png` |
+| `icon-windows.png` | Windows 应用、安装程序和关于面板图标 | `resources/icon-windows.png` |
+| `tray-windows.ico` | Windows 托盘图标 | `resources/tray-windows.ico` |
+| `welcome-brand.svg` | 欢迎窗标志 `renderer/assets/welcome-brand.svg` | 随附标志 |
+| `locale.json` | `{ "en": { "<键>": "…" }, "zh": { … } }` 按键替换 `src/locale.ts` 的文字；值可以含 `{appName}` | 随附文字 |
+
+`resources/icon.png` 是源图，没有打包步骤读取它，因此目录不设 `icon.png` 项。产物文件名保留上传和更新源脚本匹配的 `deepseek-harness-` 前缀。未打包的开发启动显示上次构建的文字，名称和图标仍是 Electron 自己的。英文 `welcomeKeyDescription` 只用 "Harness" 称呼产品，不含全名；需要时通过 `locale.json` 替换。
 
 <a id="local-official-bundles-from-a-loopback-registry"></a>
 

@@ -12,8 +12,8 @@
   en: e98e516b9e1bd0f4
   zh: 1a2abd7d89ef78a1
 /desktop-packaging/table-of-contents:
-  en: 9c1684949d13ab2c
-  zh: 3c2edec166f9bb78
+  en: 59dc0e4f7fa00aa6
+  zh: 7d7d4083d5ee4a64
 /desktop-packaging/choose-a-build-path:
   en: 17c6bcdefa05a8f8
   zh: 4ee18f832276144d
@@ -42,8 +42,11 @@
   en: 73c375e68d7d6c6e
   zh: 0d9a3c82cb6c58c3
 /desktop-packaging/local-packs:
-  en: 446ecdb810bc01b8
-  zh: 363e9bfc370eaa05
+  en: 2d29eca475dd3446
+  zh: 0081397da4ceb879
+/desktop-packaging/replace-the-brand:
+  en: 7348de0b4e9f3a5b
+  zh: 524a76545bc204ac
 /desktop-packaging/local-official-bundles-from-a-loopback-registry:
   en: b42f103358d0dfd7
   zh: a534164ad9eb00da
