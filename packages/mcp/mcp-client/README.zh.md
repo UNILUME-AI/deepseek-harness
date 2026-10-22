@@ -59,6 +59,7 @@ kind: "package-reference"
 | `command` / `args` / `env` / `cwd` | — | stdio：可执行文件、参数、合并到清洗过的环境之上的额外环境变量、工作目录 |
 | `url` / `headers` | — | streamable-http：端点 URL 与额外请求标头 |
 | `toolCallTimeoutMs` | `60,000` | 每次 `tools/call` 或资源请求的超时 |
+| `callMeta` | — | 仅供编程式调用方使用的 `(execution: ToolExecution, rawName: string) => Record<string, unknown> \| undefined`；在每次 `tools/call` 前运行，包括装饰器的兄弟调用。返回的对象成为 `params._meta`；省略钩子或返回 `undefined` 时不带该字段。钩子抛错时本次调用失败且不发请求；非函数值会拒绝插件激活。 |
 | `maxInstructionBytes` | `32,768` | 包括服务器归属信息在内的服务器指令 UTF-8 字节上限；超出时连接失败 |
 | `maxPresentationMetaBytes` | `65,536` | 单个结果 `dsh/presentation` 负载序列化后的 UTF-8 字节上限；超出时丢弃 |
 | `failOnStartupError` | `false` | 初始连接或工具同步失败时拒绝插件激活 |

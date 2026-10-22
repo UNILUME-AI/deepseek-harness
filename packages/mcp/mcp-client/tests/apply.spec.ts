@@ -199,6 +199,22 @@ describe('apply (plugin lifecycle)', () => {
     expect(mockConnect).not.toHaveBeenCalled()
   })
 
+  it.each(['stdio', 'streamable-http'] as const)(
+    'rejects a non-function callMeta before opening a %s connection', async (transport) => {
+      const callMeta = JSON.parse('"not-a-function"') as string
+      const config = transport === 'stdio'
+        ? { ...stdioConfig, callMeta }
+        : { ...stdioConfig, transport, url: 'http://localhost:3000/mcp', headers: {}, callMeta }
+      try {
+        await expect(apply(ctx, config as never)).rejects.toThrow('callMeta must be a function')
+        expect(mockConnect).not.toHaveBeenCalled()
+        expect(mockListTools).not.toHaveBeenCalled()
+      } finally {
+        await ctx.fiber.dispose()
+      }
+    },
+  )
+
   it('keeps the Cordis plugin loading until initial discovery publishes its tools', async () => {
     const connection: PromiseWithResolvers<void> = Promise.withResolvers()
     mockConnect.mockImplementation(async () => {

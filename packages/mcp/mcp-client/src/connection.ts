@@ -136,6 +136,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     toolCallTimeoutMs: config.toolCallTimeoutMs,
     maxPresentationMetaBytes: config.maxPresentationMetaBytes ?? DEFAULT_MAX_PRESENTATION_META_BYTES,
     ...config.decorateTool === undefined ? {} : { decorateTool: config.decorateTool },
+    ...config.callMeta === undefined ? {} : { callMeta: config.callMeta },
   }
   // The initial sync uses 'throw' when failOnStartupError is configured, so
   // a registration conflict propagates to the startup-await path. Re-syncs

@@ -59,6 +59,7 @@ Add one entry per server; nothing else is required. After the harness starts, th
 | `command` / `args` / `env` / `cwd` | — | stdio: executable, arguments, extra env merged over scrubbed ambient env, working directory |
 | `url` / `headers` | — | streamable-http: endpoint URL and extra request headers |
 | `toolCallTimeoutMs` | `60,000` | Timeout per `tools/call` or resource request |
+| `callMeta` | — | Programmatic-only `(execution: ToolExecution, rawName: string) => Record<string, unknown> \| undefined`; runs before every `tools/call`, including decorator sibling calls. The returned object becomes `params._meta`; omission or `undefined` leaves it absent. A thrown error fails the call without sending a request; a non-function rejects plugin activation. |
 | `maxInstructionBytes` | `32,768` | Maximum UTF-8 bytes of server instructions including attribution; an oversized value rejects the connection |
 | `maxPresentationMetaBytes` | `65,536` | Maximum UTF-8 bytes of one serialized `dsh/presentation` result payload; a larger payload is dropped |
 | `failOnStartupError` | `false` | Reject plugin activation when the initial connection or tool synchronization fails |
