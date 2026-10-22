@@ -47,6 +47,9 @@
 /deepseek-harness-desktop/package/release-versions:
   en: f461b255133384cc
   zh: 2b9db718f22fdd04
+/deepseek-harness-desktop/package/replace-the-brand:
+  en: 1a17c6552c3d65f3
+  zh: cca9ce0e62166847
 /deepseek-harness-desktop/package/runtime-file-selection:
   en: d384d0e21a842bdd
   zh: e2ca43559e5cd590

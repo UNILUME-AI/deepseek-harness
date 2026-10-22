@@ -5,6 +5,8 @@ import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { repositoryClientBuildEnvironment, resolveClientBuildEnvironment } from '../../scripts/client-build-environment.ts'
 import { packagedImportsPlugin } from './scripts/desktop-bundle-imports.mjs'
+import { resolveDesktopBrand } from './scripts/desktop-brand.mjs'
+import { brandDesktopMessages } from './src/locale.ts'
 
 // This config runs after the workspace tsdown pass, not inside it: the main bundle inlines
 // workspace devDependencies from their lib/ output, which the concurrent workspace pass does
@@ -32,6 +34,13 @@ if (clientVersion === undefined) throw new Error('desktop build: the client envi
 /** Inline the one public build value the Node entry reads; every other variable stays a runtime lookup. */
 const clientVersionDefine = { 'process.env.DSH_CLIENT_VERSION': JSON.stringify(clientVersion) }
 
+/** Fix the brand into the main and preload bundles, which own every Desktop dictionary; packaged apps never read the brand directory. */
+const brand = resolveDesktopBrand(process.env)
+const brandCopy = { appName: brand.appName, locale: brand.locale }
+// Reject locale.json keys the dictionaries do not have before bundling.
+brandDesktopMessages(brandCopy)
+const brandDefine = { DSH_DESKTOP_BRAND_COPY: JSON.stringify(brandCopy) }
+
 export default defineConfig([
   {
     entry: ['lib/types/command-manager-entry.js'],
@@ -49,7 +58,7 @@ export default defineConfig([
   {
     entry: ['lib/types/main.js'],
     plugins: [packagedImportsPlugin(mainProcessImports)],
-    define: clientVersionDefine,
+    define: { ...clientVersionDefine, ...brandDefine },
     onSuccess: async () => {
       await build({
         configFile: false,
@@ -94,6 +103,7 @@ export default defineConfig([
     // Sandboxed Electron preloads run as CommonJS even though the application package is ESM.
     entry: { [name]: `lib/types/${name}.js` },
     plugins: [packagedImportsPlugin(preloadImports)],
+    define: brandDefine,
     outDir: 'lib',
     format: 'cjs' as const,
     codeSplitting: false,

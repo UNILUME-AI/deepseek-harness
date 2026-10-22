@@ -240,6 +240,22 @@ macOS arm64 命令要求 Apple Silicon。macOS x64 命令可以在 Intel macOS �
 
 每个目标都在 `apps/desktop/.desktop-build/targets/<target>/` 下持有自己的打包输入、已准备运行时、包集合、dsh 依赖树、pnpm 准备状态、未打包应用、更新元数据和最终产物。Electron 归档缓存继续由 `.desktop-build/downloads` 共享，因为每个归档文件名都包含版本、平台和架构，并且在解包前经过验证。目标构建绝不读取其他目标的可变准备状态。
 
+### 替换品牌
+
+下游发行方把 `DSH_DESKTOP_BRAND_DIR` 设为一个绝对目录路径，即可用自己的产品名、图标、欢迎窗标志和文字发布 Desktop。品牌在构建时固定：`pnpm run build` 把文字内联进主进程和 preload 产物，electron-builder 在打包时读取产品名和图片。安装后的应用从不读取该目录。目录缺少的每一项都保留随附的默认值。目录为相对路径或不存在、JSON 无法解析、`productName` 不能作文件名，或 `locale.json` 含 `src/locale.ts` 没有的键时，构建失败。
+
+| 项 | 替换内容 | 缺失时 |
+|---|---|---|
+| `brand.json` `productName` | 安装包、应用包和可执行文件名；Windows 安装程序提示中的产品名 | `DeepSeek Harness` |
+| `brand.json` `appName.en`、`appName.zh` | `src/locale.ts` 英文或中文文字里的 `{appName}`；英文值同时用于 macOS 麦克风权限提示中的产品名 | `productName` |
+| `icon-macos.png` | macOS 应用图标 | `resources/icon-macos.png` |
+| `icon-windows.png` | Windows 应用、安装程序和关于面板图标 | `resources/icon-windows.png` |
+| `tray-windows.ico` | Windows 托盘图标 | `resources/tray-windows.ico` |
+| `welcome-brand.svg` | 欢迎窗标志 `renderer/assets/welcome-brand.svg` | 随附标志 |
+| `locale.json` | `{ "en": { "<键>": "…" }, "zh": { … } }` 按键替换 `src/locale.ts` 的文字；值可以含 `{appName}` | 随附文字 |
+
+`resources/icon.png` 是源图，没有打包步骤读取它，因此目录不设 `icon.png` 项。产物文件名保留上传和更新源脚本匹配的 `deepseek-harness-` 前缀。未打包的开发启动显示上次构建的文字，名称和图标仍是 Electron 自己的。英文 `welcomeKeyDescription` 只用 "Harness" 称呼产品，不含全名；需要时通过 `locale.json` 替换。
+
 ### 运行时文件筛选
 
 Desktop 在本地打包工作区包，并通过目标捆绑的 Node 和 pnpm 安装外部依赖。[Desktop 文件策略](scripts/runtime-file-policy.ts)随后在签名和完整性封装前过滤不可变的 `resources/app.asar/dsh/node_modules` 副本。它排除 TypeScript 声明、已识别的 JavaScript/CSS/TypeScript source map、TypeScript 构建缓存、Domino 测试目录、选定的原生编译器输出和其他平台的 node-pty 预构建文件。它保留运行时 JavaScript、原生模块及其 DLL/EXE 辅助文件、WASM、未知资源、许可证和 notices。依赖清单在完整性封装前经过 electron-builder 的元数据清理，确保归档保持已记录的字节。该策略不修改 npm tarball、捆绑的包管理器或用户安装的插件文件。

@@ -238,6 +238,22 @@ The macOS arm64 command requires Apple Silicon. The macOS x64 command runs on In
 
 Each target owns its packed package inputs, prepared runtime, package set, dsh tree, pnpm preparation state, unpacked application, update metadata, and final artifacts under `apps/desktop/.desktop-build/targets/<target>/`. The Electron archive cache remains shared under `.desktop-build/downloads` because every archive name includes its version, platform, and architecture and is verified before extraction. A target build never consumes another target's mutable preparation state.
 
+### Replace the brand
+
+A downstream distributor sets `DSH_DESKTOP_BRAND_DIR` to an absolute directory path to ship Desktop under its own product name, icons, welcome-window logo, and copy. The brand is fixed at build time: `pnpm run build` inlines the copy into the main-process and preload bundles, and electron-builder reads the product name and images while packaging. The installed application never reads the directory. Each absent entry keeps the shipped value. A relative or missing directory, unparsable JSON, a `productName` that is not a file name, or a `locale.json` key absent from `src/locale.ts` fails the build.
+
+| Entry | Replaces | When absent |
+|---|---|---|
+| `brand.json` `productName` | Installer, application bundle, and executable name; product name in Windows installer messages | `DeepSeek Harness` |
+| `brand.json` `appName.en`, `appName.zh` | `{appName}` in the English or Chinese copy of `src/locale.ts`; the English value also names the product in the macOS microphone prompt | `productName` |
+| `icon-macos.png` | macOS application icon | `resources/icon-macos.png` |
+| `icon-windows.png` | Windows application, installer, and About-panel icon | `resources/icon-windows.png` |
+| `tray-windows.ico` | Windows tray icon | `resources/tray-windows.ico` |
+| `welcome-brand.svg` | Welcome-window logo, `renderer/assets/welcome-brand.svg` | Shipped logo |
+| `locale.json` | `{ "en": { "<key>": "…" }, "zh": { … } }` replaces each named key of `src/locale.ts`; a value may contain `{appName}` | Shipped copy |
+
+No packaging step reads `resources/icon.png`, which is source artwork, so the directory has no `icon.png` entry. Artifact file names keep the `deepseek-harness-` prefix that upload and update-feed scripts match. An unpackaged development launch shows the copy of its last build with Electron's name and icons. The English `welcomeKeyDescription` calls the product "Harness" without the full name; replace it through `locale.json`.
+
 ### Runtime file selection
 
 Desktop packs workspace packages locally and installs external dependencies through the target's bundled Node and pnpm. [Desktop's file policy](scripts/runtime-file-policy.ts) then filters the immutable `resources/app.asar/dsh/node_modules` copy before signing and integrity sealing. It omits TypeScript declarations, recognized JavaScript/CSS/TypeScript source maps, TypeScript build caches, Domino's test directory, selected native compiler outputs, and node-pty prebuilds for other platforms. It preserves runtime JavaScript, native modules and their DLL/EXE helpers, WASM, unknown assets, licenses, and notices. Dependency manifests pass through electron-builder's metadata cleanup before integrity sealing, so archiving preserves their recorded bytes. The policy does not alter npm tarballs, the bundled package manager, or user-installed plugin files.
