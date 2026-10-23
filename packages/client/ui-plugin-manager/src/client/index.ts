@@ -53,7 +53,8 @@ export type { ConfigLedger, OfficialItem } from './config-ledger.ts'
 export type { PluginManagerFace } from './manager-store.ts'
 export type { PluginManagerLocaleKey } from './locales.ts'
 export type {
-  ConfigPageForm, PluginActivationOwnerProps, PluginConfigViewProps, PluginDetailProps, PluginPackageRef, PluginRowRef, PluginsSubject,
+  ConfigPageForm, PluginActivationOwnerProps, PluginCardProps, PluginConfigViewProps, PluginDetailProps, PluginGroupProps,
+  PluginListSectionProps, PluginPackageRef, PluginPageHeadProps, PluginPageProps, PluginRowRef, PluginsSubject,
 } from './slot-contract.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
