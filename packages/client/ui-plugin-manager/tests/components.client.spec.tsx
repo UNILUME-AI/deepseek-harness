@@ -826,6 +826,8 @@ describe('PluginManagerPage', () => {
       const section = document.querySelector('[data-plugin-group="section"]') as HTMLElement
       const official = document.querySelector('[data-plugin-group="official"]') as HTMLElement
       expect(section.compareDocumentPosition(official) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      // A real child of the page column, so the column's full-width rule reaches it
+      expect(section.closest('[data-plugin-sections]')?.parentElement?.hasAttribute('data-plugin-panel')).toBe(true)
       expect(within(section).getByRole('heading', { name: 'Store connectors' })).toBeTruthy()
       expect(section.querySelector('[data-plugin-count="1"]')).not.toBeNull()
       expect(within(section).getByText('connected')).toBeTruthy()

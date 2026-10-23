@@ -1459,9 +1459,12 @@ export function PluginManagerPage(props: PluginManagerPageProps): ReactNode {
         : null}
       {loaded && showsCards
         ? (
-          <SectionTranslate.Provider value={t}>
-            {renderSlot('plugins.list.section', { Card: SectionCard, Group: SectionGroup, openPage: (id: string) => { setView({ kind: 'page', id }) } })}
-          </SectionTranslate.Provider>
+          // A real child of the page, so the column's full-width rule reaches it through the slot's display: contents wrapper
+          <div className={css.sections} data-plugin-sections>
+            <SectionTranslate.Provider value={t}>
+              {renderSlot('plugins.list.section', { Card: SectionCard, Group: SectionGroup, openPage: (id: string) => { setView({ kind: 'page', id }) } })}
+            </SectionTranslate.Provider>
+          </div>
         )
         : null}
       {loaded && showsCards

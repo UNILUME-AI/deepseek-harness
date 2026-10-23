@@ -20,6 +20,17 @@
   max-width: 960px;
 }
 
+/* Plugin-drawn groups above the Official group, spaced like the page's own groups. */
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.sections:empty {
+  display: none;
+}
+
 .pageHead {
   display: flex;
   align-items: flex-start;
