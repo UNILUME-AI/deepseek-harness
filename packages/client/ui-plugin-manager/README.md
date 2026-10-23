@@ -85,7 +85,7 @@ ctx.slots.inject('plugins.detail.section', () => ctx.slots.register({
 
 A row's page exists only while a `plugins.row.config` entry names the row, so a contribution meant for a row renders on the page that configuration opens.
 
-A plugin that manages things that are not bundles — an account it connects, say — lists them through `plugins.list.section`, rendered above the Official group with the page's own `Group` and `Card` components so its entries look like the rest of the list. A card opens the plugin's own page through `openPage(id)`, and other plugins open it with `ctx.pluginNavigation.openPage(id)`. That page is the `plugins.page` entry keyed by the id: it heads itself with the page's `Head` (crumb, icon, and head actions) and returns to the list through `onBack`; what it shows below, sub-pages included, is the plugin's own. Leaving the Plugins panel returns to the list as for any other page.
+A plugin that manages things that are not bundles — an account it connects, say — lists them through `plugins.list.section`, rendered above the Official group with the page's own `Group` and `Card` components so its entries look like the rest of the list. A card opens the plugin's own page through `openPage(id)`, and other plugins open it with `ctx.pluginNavigation.openPage(id)`. That page is the `plugins.page` entry keyed by the id: it heads itself with the page's `Head` (crumb, icon, and head actions) and returns to the list through `onBack`; what it shows below, sub-pages included, is the plugin's own. Leaving the Plugins panel returns to the list as for any other page, and so does an id no entry is registered under.
 
 ```tsx ignore-check
 ctx.slots.inject('plugins.list.section', () => ctx.slots.register({

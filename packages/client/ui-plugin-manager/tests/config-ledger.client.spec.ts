@@ -9,7 +9,7 @@ interface Registration {
 
 /** A slot registry and locale stand-in: ledgers by slot, versions that move on registration, and a locale revision. */
 function bench() {
-  const entries: Record<string, Registration[]> = { 'plugins.item': [], 'plugins.bundle.config': [], 'plugins.row.config': [] }
+  const entries: Record<string, Registration[]> = { 'plugins.item': [], 'plugins.bundle.config': [], 'plugins.row.config': [], 'plugins.page': [], 'plugins.list.section': [] }
   const versions: Record<string, number> = { 'plugins.item': 0, 'plugins.bundle.config': 0, 'plugins.row.config': 0 }
   const listeners = new Map<string, Set<() => void>>()
   const localeListeners = new Set<() => void>()
@@ -52,18 +52,22 @@ describe('configLedgerSource', () => {
   it('projects the official items in ledger order with locale-following labels, and the bundle and row keys', () => {
     const b = bench()
     const source = configLedgerSource(b.ctx)
-    expect(source.getSnapshot()).toEqual({ items: [], bundles: new Set(), rows: new Set() })
+    expect(source.getSnapshot()).toEqual({ items: [], bundles: new Set(), rows: new Set(), pages: new Set(), sections: 0 })
 
     let title = 'Shell'
     b.register('plugins.item', { id: 'bash', label: () => title })
     b.register('plugins.item', { id: 'loop', label: 'Agent loop' })
     b.register('plugins.bundle.config', { key: 'dsh-x' })
     b.register('plugins.row.config', { key: rowConfigKey('dsh-x', 'row') })
+    b.register('plugins.page', { key: 'acme' })
+    b.register('plugins.list.section', { id: 'acme-accounts' })
 
     expect(source.getSnapshot()).toEqual({
       items: [{ id: 'bash', label: 'Shell' }, { id: 'loop', label: 'Agent loop' }],
       bundles: new Set(['dsh-x']),
       rows: new Set(['dsh-x#row']),
+      pages: new Set(['acme']),
+      sections: 1,
     })
     // A label thunk is re-read when the locale moves, not before.
     title = '终端'
@@ -78,7 +82,7 @@ describe('configLedgerSource', () => {
     b.register('plugins.item', { id: 'bare' })
     b.register('plugins.bundle.config', {})
 
-    expect(source.getSnapshot()).toEqual({ items: [{ id: 'bare', label: '' }], bundles: new Set(), rows: new Set() })
+    expect(source.getSnapshot()).toEqual({ items: [{ id: 'bare', label: '' }], bundles: new Set(), rows: new Set(), pages: new Set(), sections: 0 })
   })
 
   it('keeps its snapshot until a ledger or the locale moves, and follows every source while subscribed', () => {

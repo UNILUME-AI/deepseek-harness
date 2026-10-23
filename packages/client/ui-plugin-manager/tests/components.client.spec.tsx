@@ -8,7 +8,7 @@ import type { PluginEntryId, PluginInstallRequestId } from '@deepseek-ai/dsh-api
 import { bindSnapshotSelector, stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ConfigForm, ConfigFormSnapshot, SettingsMirrorSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import { StrictMode, type ReactNode } from 'react'
+import { StrictMode, useEffect, type ReactNode } from 'react'
 import { createNavigationStore } from '../src/client/navigation-store.ts'
 import { PluginManagerPage } from '../src/client/PluginManagerPage.tsx'
 import { PluginRefreshToast } from '../src/client/PluginRefreshToast.tsx'
@@ -88,7 +88,7 @@ function subjectOf(owner: unknown): PluginsSubject | undefined {
   return typeof owner === 'object' && owner !== null && 'subject' in owner ? (owner as PluginDetailProps).subject : undefined
 }
 
-const NO_CONFIG: ConfigLedger = { items: [], bundles: new Set(), rows: new Set() }
+const NO_CONFIG: ConfigLedger = { items: [], bundles: new Set(), rows: new Set(), pages: new Set(), sections: 0 }
 
 function renderTab(
   state: Partial<PluginManagerState> = {}, config: Partial<ConfigLedger> = {},
@@ -155,7 +155,8 @@ function renderTab(
       return { ...stub.scope, mutate: forms[id]!.mutate }
     },
     renderSlot: (name, owner, opts) => {
-      const body = bodies[`${name}:${opts?.only ?? opts?.entryKey ?? ''}`]
+      // A keyed page answers only to its entryKey, as the real renderer does
+      const body = bodies[`${name}:${name === 'plugins.page' ? opts?.entryKey ?? '' : opts?.only ?? opts?.entryKey ?? ''}`]
       if (body === undefined) return null
       if (name === 'plugins.bundle.activation') return body('activation', owner)
       if (name.startsWith('plugins.detail.') || name === 'plugins.list.section' || name === 'plugins.page') return body('detail', owner)
@@ -818,8 +819,10 @@ describe('PluginManagerPage', () => {
       },
     }
 
+    const withPage = { pages: new Set(['ziniao']), sections: 1 }
+
     it('lists a section above the Official group in the page\'s own card chrome and opens its page, then comes back', () => {
-      renderTab({ packages: [pkg({ optional: true, installed: false })] }, undefined, bodies)
+      renderTab({ packages: [pkg({ optional: true, installed: false })] }, withPage, bodies)
       const section = document.querySelector('[data-plugin-group="section"]') as HTMLElement
       const official = document.querySelector('[data-plugin-group="official"]') as HTMLElement
       expect(section.compareDocumentPosition(official) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -839,10 +842,31 @@ describe('PluginManagerPage', () => {
       expect(document.querySelector('[data-plugin-group="section"]')).not.toBeNull()
     })
 
-    it('opens a plugin page from navigation the way a section does', () => {
-      const tab = renderTab({ packages: [] }, undefined, bodies)
+    it('opens a plugin page from navigation the way a section does, and shows no empty list behind a section', () => {
+      const tab = renderTab({ packages: [] }, withPage, bodies)
+      expect(screen.queryByText(en.empty)).toBeNull()
       act(() => { tab.navigation.actions.setView({ kind: 'page', id: 'ziniao' }) })
       expect(screen.getByRole('heading', { name: 'Ziniao page' })).toBeTruthy()
+    })
+
+    it('shows the list again when the open page\'s entry is gone', () => {
+      const tab = renderTab({ packages: [pkg({ optional: true, installed: false })] }, { sections: 1 }, bodies)
+      act(() => { tab.navigation.actions.setView({ kind: 'page', id: 'ziniao' }) })
+      expect(document.querySelector('[data-plugin-page]')).toBeNull()
+      expect(document.querySelector('[data-plugin-group="section"]')).not.toBeNull()
+    })
+
+    it('keeps a section card\'s own state across a locale change', () => {
+      let mounts = 0
+      const Counted = (): ReactNode => { useEffect(() => { mounts += 1 }, []); return <span>connected</span> }
+      const tab = renderTab({ packages: [] }, { sections: 1 }, {
+        'plugins.list.section:': (_view, owner) => {
+          const { Card, Group } = owner as PluginListSectionProps
+          return <Group title="Store connectors"><Card title="Ziniao" icon={null} end={<Counted />} onOpen={() => {}} /></Group>
+        },
+      })
+      tab.setLanguage(zh)
+      expect(mounts).toBe(1)
     })
   })
 

@@ -9,7 +9,7 @@
  * the page declares.
  */
 
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { PluginInstallFailureKind, Registry } from '@deepseek-ai/dsh-api-remotes/client'
 import {
@@ -379,8 +379,14 @@ function DetailTop({ crumbLabel, crumbText, onBack, icon, actions }: {
   )
 }
 
+/** The page's translator for section cards, so the card component keeps one identity across locale changes. */
+const SectionTranslate = createContext<Translate | null>(null)
+
 /** A `plugins.list.section` entry's card in the page's own card chrome. */
-function SectionCard({ t, ...head }: PluginCardProps & { readonly t: Translate }): ReactNode {
+function SectionCard(head: PluginCardProps): ReactNode {
+  const t = useContext(SectionTranslate)
+  /* v8 ignore next -- the page always provides the translator around its sections */
+  if (t === null) return null
   return <li className={`${css.card} ${css.cardLink}`}><CardHead t={t} {...head} description={head.description} /></li>
 }
 
@@ -1312,9 +1318,8 @@ export function PluginManagerPage(props: PluginManagerPageProps): ReactNode {
   const openPkg = view.kind === 'package' || view.kind === 'row' ? listed.find(pkg => pkg.name === view.name) : undefined
   const openItem = view.kind === 'item' ? ledger.items.find(item => item.id === view.id) : undefined
   const openRow = view.kind === 'row' && openPkg !== undefined ? openPkg.rows.find(row => row.rowId === view.rowId) : undefined
-  const openPage = view.kind === 'page' ? view.id : undefined
-  // One component per translator, so section cards keep their identity across renders
-  const sectionCard = useMemo(() => function Card(card: PluginCardProps): ReactNode { return <SectionCard t={t} {...card} /> }, [t])
+  // A page whose entry went away (uninstalled, reloaded) shows the list again.
+  const openPage = view.kind === 'page' && ledger.pages.has(view.id) ? view.id : undefined
   const showsCards = openPkg === undefined && openItem === undefined && openPage === undefined
   const activated = listed.find(pkg => pkg.name === activation && pkg.enabled && !state.busy.includes(pkg.name))
   const setRowEnabled = (row: PackageRow, enabled: boolean): void => {
@@ -1452,9 +1457,15 @@ export function PluginManagerPage(props: PluginManagerPageProps): ReactNode {
       {loaded && openItem !== undefined
         ? <ItemDetail form={formFor(openItem.id)} item={openItem} t={t} renderSlot={renderSlot} onBack={() => { setView({ kind: 'list' }) }} />
         : null}
-      {loaded && showsCards ? renderSlot('plugins.list.section', { Card: sectionCard, Group: SectionGroup, openPage: (id: string) => { setView({ kind: 'page', id }) } }) : null}
       {loaded && showsCards
-        ? officialCards.length === 0 && mine.length === 0 && state.status !== 'error'
+        ? (
+          <SectionTranslate.Provider value={t}>
+            {renderSlot('plugins.list.section', { Card: SectionCard, Group: SectionGroup, openPage: (id: string) => { setView({ kind: 'page', id }) } })}
+          </SectionTranslate.Provider>
+        )
+        : null}
+      {loaded && showsCards
+        ? officialCards.length === 0 && mine.length === 0 && ledger.sections === 0 && state.status !== 'error'
           ? <p className={css.empty}>{t('empty')}</p>
           : (
             <>
