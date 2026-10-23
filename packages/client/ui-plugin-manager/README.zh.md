@@ -85,6 +85,20 @@ ctx.slots.inject('plugins.detail.section', () => ctx.slots.register({
 
 行页只在某个 `plugins.row.config` 条目点名这一行时存在，因此给行的贡献渲染在该配置打开的页面上。
 
+插件要管理的东西若不是组合包（例如它连接的账号），用 `plugins.list.section` 列出：它渲染在官方分组之上，拿到页面自己的 `Group` 与 `Card` 组件，条目与列表其余部分同一外观。卡片用 `openPage(id)` 打开插件自己的页面，其他插件用 `ctx.pluginNavigation.openPage(id)` 打开。那一页就是以该 id 为 key 的 `plugins.page` 条目：用页面的 `Head`（面包屑、图标与页头控件）画页头，经 `onBack` 回到列表；其下的内容（含子页）由插件自己画。离开插件面板时与其他页面一样回到列表。
+
+```tsx ignore-check
+ctx.slots.inject('plugins.list.section', () => ctx.slots.register({
+  name: 'plugins.list.section',
+  id: 'acme-accounts',
+  locale: 'acmeAccounts',
+}, ({ Group, Card, openPage }) => (
+  <Group title="Accounts" count={1}>
+    <Card title="Acme" icon={<AcmeIcon />} description="Your Acme account" end={<ConnectedMark />} onOpen={() => { openPage('acme') }} />
+  </Group>
+)))
+```
+
 -----
 
 <a id="understand-the-implementation"></a>

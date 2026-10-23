@@ -16,6 +16,7 @@
  * all. The page draws the title, icon, and crumb itself.
  */
 
+import type { ComponentType, ReactNode } from 'react'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 
@@ -61,6 +62,46 @@ export type PluginsSubject =
 export interface PluginDetailProps {
   /** The subject of the open page; an entry renders null for a subject it has nothing for. */
   readonly subject: PluginsSubject
+}
+
+/** One entry drawn as the page's own plugin card: icon, title that opens it, one-liner, tags, and a trailing control. */
+export interface PluginCardProps {
+  readonly title: string
+  readonly icon: ReactNode
+  readonly description?: ReactNode
+  readonly tags?: ReactNode
+  /** Drawn where a bundle card has its switch, e.g. a state mark or one button. */
+  readonly end?: ReactNode
+  readonly onOpen: () => void
+}
+
+/** A titled group of cards in the page's own group chrome. */
+export interface PluginGroupProps {
+  readonly title: string
+  readonly count?: number
+  readonly children: ReactNode
+}
+
+/** What a list section is rendered with: the page's card and group chrome, and navigation to a plugin page. */
+export interface PluginListSectionProps {
+  readonly Card: ComponentType<PluginCardProps>
+  readonly Group: ComponentType<PluginGroupProps>
+  /** Open the `plugins.page` entry under this key. */
+  readonly openPage: (id: string) => void
+}
+
+/** The page's own detail head: the back crumb, the icon, and the head actions. */
+export interface PluginPageHeadProps {
+  readonly crumb: string
+  readonly onBack: () => void
+  readonly icon: ReactNode
+  readonly actions?: ReactNode
+}
+
+/** What a plugin page is rendered with: its way back to the list and the page's head chrome. */
+export interface PluginPageProps {
+  readonly onBack: () => void
+  readonly Head: ComponentType<PluginPageHeadProps>
 }
 
 /** One user-requested bundle activation and navigation to its configuration page. */
@@ -118,6 +159,19 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * has nothing for.
      */
     'plugins.detail.section': { kind: 'list'; scope: 'root'; owner: PluginDetailProps }
+    /**
+     * Groups of a plugin's own entries above the Official group, for things a
+     * plugin manages that are not bundles (an account it connects, say). An
+     * entry draws its groups with the page's `Group` and `Card` and opens its
+     * detail with `openPage`.
+     */
+    'plugins.list.section': { kind: 'list'; scope: 'root'; owner: PluginListSectionProps }
+    /**
+     * A whole page a plugin draws, keyed by the id `openPage` or
+     * `pluginNavigation.openPage` names; it heads itself with the page's `Head`
+     * and may change what it shows (a sub-page) without leaving it.
+     */
+    'plugins.page': { kind: 'keyed'; scope: 'root'; owner: PluginPageProps }
   }
 }
 

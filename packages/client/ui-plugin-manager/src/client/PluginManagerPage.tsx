@@ -9,7 +9,7 @@
  * the page declares.
  */
 
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { PluginInstallFailureKind, Registry } from '@deepseek-ai/dsh-api-remotes/client'
 import {
@@ -31,7 +31,7 @@ import {
   type PluginManagerFace, type RegistryChoice,
 } from './manager-store.ts'
 import { managementText, noticeText, packageText, registryText, rowText, type Translate } from './presentation.ts'
-import type { PluginPackageRef, PluginRowRef, PluginsSubject } from './slot-contract.ts'
+import type { PluginCardProps, PluginGroupProps, PluginPackageRef, PluginPageHeadProps, PluginRowRef, PluginsSubject } from './slot-contract.ts'
 import type { ConfigPageForm } from './slot-contract.ts'
 import css from './PluginManagerPage.module.css'
 
@@ -42,6 +42,7 @@ export type PluginManagerPageProps =
   & PropsRenderSlots<
     | 'plugins.item' | 'plugins.bundle.config' | 'plugins.row.config' | 'plugins.bundle.activation'
     | 'plugins.detail.actions' | 'plugins.detail.badge' | 'plugins.detail.section'
+    | 'plugins.list.section' | 'plugins.page'
   >
   & InjectFace<PluginManagerFace>
   & PropsStore<ReturnType<typeof createNavigationStore>>
@@ -376,6 +377,30 @@ function DetailTop({ crumbLabel, crumbText, onBack, icon, actions }: {
       </div>
     </div>
   )
+}
+
+/** A `plugins.list.section` entry's card in the page's own card chrome. */
+function SectionCard({ t, ...head }: PluginCardProps & { readonly t: Translate }): ReactNode {
+  return <li className={`${css.card} ${css.cardLink}`}><CardHead t={t} {...head} description={head.description} /></li>
+}
+
+/** A `plugins.list.section` entry's group in the page's own group chrome. */
+function SectionGroup({ title, count, children }: PluginGroupProps): ReactNode {
+  return (
+    <section className={css.group} data-plugin-scope="global" data-plugin-group="section">
+      <div className={css.groupHead}>
+        <h3 className={css.groupTitle}>{title}</h3>
+        {count === undefined ? null : <span className={css.count} data-plugin-count={count}>{count}</span>}
+      </div>
+      <ul className={css.cards}>{children}</ul>
+    </section>
+  )
+}
+
+/** A `plugins.page` entry's head: the page's crumb, icon frame, and head actions. */
+function PageHead({ crumb, onBack, icon, actions }: PluginPageHeadProps): ReactNode {
+  const head = actions === undefined ? undefined : <div className={css.detailActions}>{actions}</div>
+  return <DetailTop crumbLabel={crumb} crumbText={crumb} onBack={onBack} icon={icon} actions={head} />
 }
 
 /** One package as a card that opens its page: its name, its one-liner, its tags, and its bundle switch. */
@@ -1287,7 +1312,10 @@ export function PluginManagerPage(props: PluginManagerPageProps): ReactNode {
   const openPkg = view.kind === 'package' || view.kind === 'row' ? listed.find(pkg => pkg.name === view.name) : undefined
   const openItem = view.kind === 'item' ? ledger.items.find(item => item.id === view.id) : undefined
   const openRow = view.kind === 'row' && openPkg !== undefined ? openPkg.rows.find(row => row.rowId === view.rowId) : undefined
-  const showsCards = openPkg === undefined && openItem === undefined
+  const openPage = view.kind === 'page' ? view.id : undefined
+  // One component per translator, so section cards keep their identity across renders
+  const sectionCard = useMemo(() => function Card(card: PluginCardProps): ReactNode { return <SectionCard t={t} {...card} /> }, [t])
+  const showsCards = openPkg === undefined && openItem === undefined && openPage === undefined
   const activated = listed.find(pkg => pkg.name === activation && pkg.enabled && !state.busy.includes(pkg.name))
   const setRowEnabled = (row: PackageRow, enabled: boolean): void => {
     /* v8 ignore next -- a row without a live entry has its switch disabled */
@@ -1418,9 +1446,13 @@ export function PluginManagerPage(props: PluginManagerPageProps): ReactNode {
           />
         )
         : null}
+      {openPage !== undefined
+        ? <div className={css.detail} data-plugin-page={openPage}>{renderSlot('plugins.page', { onBack: () => { setView({ kind: 'list' }) }, Head: PageHead }, { entryKey: openPage })}</div>
+        : null}
       {loaded && openItem !== undefined
         ? <ItemDetail form={formFor(openItem.id)} item={openItem} t={t} renderSlot={renderSlot} onBack={() => { setView({ kind: 'list' }) }} />
         : null}
+      {loaded && showsCards ? renderSlot('plugins.list.section', { Card: sectionCard, Group: SectionGroup, openPage: (id: string) => { setView({ kind: 'page', id }) } }) : null}
       {loaded && showsCards
         ? officialCards.length === 0 && mine.length === 0 && state.status !== 'error'
           ? <p className={css.empty}>{t('empty')}</p>

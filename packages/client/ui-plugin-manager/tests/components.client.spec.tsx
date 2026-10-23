@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { ConfigPageForm } from '../src/client/slot-contract.ts'
+import type { ConfigPageForm, PluginListSectionProps, PluginPageProps } from '../src/client/slot-contract.ts'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -158,7 +158,7 @@ function renderTab(
       const body = bodies[`${name}:${opts?.only ?? opts?.entryKey ?? ''}`]
       if (body === undefined) return null
       if (name === 'plugins.bundle.activation') return body('activation', owner)
-      if (name.startsWith('plugins.detail.')) return body('detail', owner)
+      if (name.startsWith('plugins.detail.') || name === 'plugins.list.section' || name === 'plugins.page') return body('detail', owner)
       if (!('view' in owner) || (owner.view !== 'summary' && owner.view !== 'page')) {
         throw new Error('Plugin configuration fixture requires a summary or page view')
       }
@@ -799,6 +799,50 @@ describe('PluginManagerPage', () => {
       fireEvent.click(within(page).getByRole('button', { name: en.backToPackage.replace('{name}', 'dsh-better-sidebar') }))
       expect(document.querySelector('[data-plugin-row-detail]')).toBeNull()
       expect(document.querySelector('[data-plugin-detail="dsh-better-sidebar"]')).toBeTruthy()
+    })
+  })
+
+  describe('plugin-drawn sections and pages', () => {
+    const bodies: SlotBodies = {
+      'plugins.list.section:': (_view, owner) => {
+        const { Card, Group, openPage } = owner as PluginListSectionProps
+        return (
+          <Group title="Store connectors" count={1}>
+            <Card title="Ziniao" icon={<img alt="" />} description="Stores on this computer" end={<span>connected</span>} onOpen={() => { openPage('ziniao') }} />
+          </Group>
+        )
+      },
+      'plugins.page:ziniao': (_view, owner) => {
+        const { Head, onBack } = owner as PluginPageProps
+        return <><Head crumb="Plugins" onBack={onBack} icon={<img alt="" />} actions={<button type="button">Disconnect</button>} /><h2>Ziniao page</h2></>
+      },
+    }
+
+    it('lists a section above the Official group in the page\'s own card chrome and opens its page, then comes back', () => {
+      renderTab({ packages: [pkg({ optional: true, installed: false })] }, undefined, bodies)
+      const section = document.querySelector('[data-plugin-group="section"]') as HTMLElement
+      const official = document.querySelector('[data-plugin-group="official"]') as HTMLElement
+      expect(section.compareDocumentPosition(official) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(within(section).getByRole('heading', { name: 'Store connectors' })).toBeTruthy()
+      expect(section.querySelector('[data-plugin-count="1"]')).not.toBeNull()
+      expect(within(section).getByText('connected')).toBeTruthy()
+
+      fireEvent.click(within(section).getByRole('button', { name: en.openDetail.replace('{name}', 'Ziniao') }))
+      const page = document.querySelector('[data-plugin-page="ziniao"]') as HTMLElement
+      expect(within(page).getByRole('heading', { name: 'Ziniao page' })).toBeTruthy()
+      expect(within(page).getByRole('button', { name: 'Disconnect' })).toBeTruthy()
+      // The list and its section are gone while the page is open.
+      expect(document.querySelector('[data-plugin-group]')).toBeNull()
+
+      fireEvent.click(within(page).getByRole('button', { name: 'Plugins' }))
+      expect(document.querySelector('[data-plugin-page]')).toBeNull()
+      expect(document.querySelector('[data-plugin-group="section"]')).not.toBeNull()
+    })
+
+    it('opens a plugin page from navigation the way a section does', () => {
+      const tab = renderTab({ packages: [] }, undefined, bodies)
+      act(() => { tab.navigation.actions.setView({ kind: 'page', id: 'ziniao' }) })
+      expect(screen.getByRole('heading', { name: 'Ziniao page' })).toBeTruthy()
     })
   })
 

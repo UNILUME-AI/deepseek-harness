@@ -39,6 +39,11 @@ declare module '@deepseek-ai/cordis' {
        * @param packageName - npm package name of the bundle.
        */
       openBundle(packageName: string): void
+      /**
+       * Open the `plugins.page` entry under this key without changing the current Session.
+       * @param id - the entry's key.
+       */
+      openPage(id: string): void
     }
   }
 }
@@ -123,6 +128,8 @@ export function apply(ctx: ClientContext): void {
         'plugins.detail.actions': { kind: 'list', scope: 'root' },
         'plugins.detail.badge': { kind: 'list', scope: 'root' },
         'plugins.detail.section': { kind: 'list', scope: 'root' },
+        'plugins.list.section': { kind: 'list', scope: 'root' },
+        'plugins.page': { kind: 'keyed', scope: 'root' },
       },
     }, PluginManagerPage)
     yield ctx.layout.panelInfo.subscribe(() => {
@@ -132,6 +139,10 @@ export function apply(ctx: ClientContext): void {
       openBundle: (packageName: string) => {
         ctx.layout.selectPanel(PANEL_ID)
         instance.actions.setView({ kind: 'package', name: packageName })
+      },
+      openPage: (id: string) => {
+        ctx.layout.selectPanel(PANEL_ID)
+        instance.actions.setView({ kind: 'page', id })
       },
     })
     yield () => { void disposeNavigation() }
