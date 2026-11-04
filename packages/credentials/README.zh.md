@@ -22,12 +22,13 @@ kind: "package-group"
 <a id="packages"></a>
 ## 包
 
-三个包共同提供凭据功能：一个在运行时存储、查询与移除机密，而配置只写名字；第二个是默认的本机存储；第三个让插件获取必须向人请求的凭据。它们的 README 覆盖日常使用；全部约定以子系统参考为准。
+四个包共同提供凭据功能：一个在运行时存储、查询与移除机密，而配置只写名字；第二个是默认的本机存储；第三个在该存储之上把 UNILUME 桌面版的登录凭据存进 OS 钥匙串；第四个让插件获取必须向人请求的凭据。它们的 README 覆盖日常使用；全部约定以子系统参考为准。
 
 | 包 | 角色 | ctx 键 |
 |---|---|---|
 | [`credentials/`](credentials/README.zh.md) | 在运行时存储、查询与移除机密，而配置只写名字 | `ctx.credentials` |
 | [`credentials-local/`](credentials-local/README.zh.md) | 默认本机存储：一个私有 YAML 文件，环境覆盖优先 | 注册 `ctx.credentials` |
+| [`credentials-keychain/`](credentials-keychain/README.zh.md) | 桌面版存储：三条 UNILUME 凭据存 OS 钥匙串，其余存本地文件 | 注册 `ctx.credentials` |
 | [`authorization/`](authorization/README.zh.md) | 由插件拥有、通过询问人来取得凭据的 flow | `ctx.authorization` |
 
 -----
