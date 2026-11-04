@@ -25,7 +25,6 @@
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
-import { AsyncEntry } from '@napi-rs/keyring'
 import { mkdir, readdir, readFile, rm } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
@@ -103,14 +102,29 @@ export interface Keychain {
  * @returns the keychain over that service.
  */
 export function osKeychain(service: string = KEYCHAIN_SERVICE): Keychain {
+  // Loaded on first use: a native module that fails to load (unsigned, missing
+  // platform package) must fail only these entries, not the whole provider.
+  let loaded: Promise<typeof import('@napi-rs/keyring')> | undefined
+  const entry = async (account: string) => new (await (loaded ??= import('@napi-rs/keyring'))).AsyncEntry(service, account)
   return {
+    // getSecret rejects when the store cannot be read; getPassword is only documented to return null.
     async get(account) {
-      return (await new AsyncEntry(service, account).getPassword()) ?? undefined
+      const bytes = await (await entry(account)).getSecret()
+      return bytes === null ? undefined : Buffer.from(bytes).toString('utf8')
     },
-    set: (account, value) => new AsyncEntry(service, account).setPassword(value),
-    delete: account => new AsyncEntry(service, account).deleteCredential(),
+    async set(account, value) {
+      const bytes = Buffer.from(value, 'utf8')
+      if (bytes.length > MAX_SECRET_BYTES) {
+        throw new Error(`credentials-keychain: "${account}" is ${bytes.length} bytes, over the ${MAX_SECRET_BYTES}-byte keychain limit`)
+      }
+      await (await entry(account)).setSecret(bytes)
+    },
+    delete: async account => (await entry(account)).deleteCredential(),
   }
 }
+
+/** Windows Credential Manager's per-entry limit (CRED_MAX_CREDENTIAL_BLOB_SIZE); macOS allows more. */
+const MAX_SECRET_BYTES = 2560
 
 /** Keychain account of one reference. */
 function refAccount(ref: string): string {
@@ -161,7 +175,7 @@ export class KeychainCredentialProvider extends LocalCredentialProvider {
     try {
       await this.migrate()
     } catch (error) {
-      this.ctx.logger.warn('credentials-keychain: keychain migration of %s failed; the file is unchanged and the next start retries', this.spec.filename)
+      this.ctx.logger.warn('credentials-keychain: keychain migration of %s failed; the next start retries', this.spec.filename)
       this.ctx.logger.warn(error)
     }
   }
