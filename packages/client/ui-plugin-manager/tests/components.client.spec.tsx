@@ -1211,7 +1211,8 @@ describe('PluginManagerPage', () => {
     it('lists a section above the Official group in the page\'s own card chrome and opens its page, then comes back', () => {
       renderTab({ packages: [pkg({ optional: true, installed: false })] }, withPage, bodies)
       const section = document.querySelector('[data-plugin-group="section"]') as HTMLElement
-      const official = document.querySelector('[data-plugin-group="official"]') as HTMLElement
+      // rc.5 splits the former Official group into its own Installed-tab groups; the section precedes the first of them.
+      const official = document.querySelector('[data-plugin-group]:not([data-plugin-group="section"])') as HTMLElement
       expect(section.compareDocumentPosition(official) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
       // A real child of the page column, so the column's full-width rule reaches it
       expect(section.closest('[data-plugin-sections]')?.parentElement?.hasAttribute('data-plugin-panel')).toBe(true)
