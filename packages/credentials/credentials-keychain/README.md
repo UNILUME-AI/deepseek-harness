@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-credentials-keychain` keeps three UNILUME desktop credentials in the OS keychain (macOS Keychain, Windows Credential Manager) instead of the plaintext credential file: the `UNILUME_MODEL_TOKEN` reference and the `unilume-desktop/default` and `client-connection/browser-session` records. Every other credential stays in `.credentials.yaml` with exactly the behavior of [`dsh-credentials-local`](../credentials-local/README.md), which this provider extends. On start it moves those three credentials out of an existing file.
+`dsh-credentials-keychain` keeps three UNILUME desktop credentials in the OS keychain (macOS Keychain, Windows Credential Manager) instead of the plaintext credential file: the `UNILUME_MODEL_TOKEN` reference and the `unilume-desktop/default` and `client-connection/browser-session` records. Every other credential stays in `.credentials.yaml` with exactly the behavior of [`dsh-credentials-local`](../credentials-local/README.md), which this provider extends. On start it migrates those three credentials from an existing file; keychain failures keep new values only in memory until restart.
 
 ## Table of Contents
 
@@ -52,8 +52,9 @@ On start, the provider copies each of the three credentials found in `.credentia
 
 ### What can go wrong
 
-- **The keychain is unavailable** — access denied, no keychain service, or a platform error makes reads and writes of the three credentials fail with an "OS keychain is unavailable" error, and the cause is logged. Nothing is written to the file instead; the user signs in again once access is allowed. `listRecords` logs the failure and leaves those records out.
-- **Signing out** — `unset` and `deleteRecord` remove the keychain entry and any copy still in the file.
+- **The keychain is unavailable** — the first failed call logs one warning with the original error and switches the three credentials to process memory, including the failed operation. Subsequent reads, writes, deletes, descriptions, and listings use memory without retrying the keychain or repeating the warning. No credential or temporary file is written. Memory values are lost on restart, so the user must sign in again; the new process tries the keychain normally. Unmigrated file entries keep serving until a memory update or deletion overrides them; their files and backups stay untouched for the next migration.
+- **An entry exceeds 2560 UTF-8 bytes** — writes reject before calling the backend, including in memory mode. This input error does not mark the keychain unavailable.
+- **Signing out** — `unset` and `deleteRecord` remove the keychain entry and any copy still in the file while the keychain is available. In memory mode they remove the memory value and hide an unmigrated file value for this process, leaving the file unchanged.
 
 -----
 
@@ -72,7 +73,7 @@ On start, the provider copies each of the three credentials found in `.credentia
 
 ### Writes and the file lock
 
-Writes and deletes of the three credentials run on the file store's operation queue under its `<file>.lock` writer lock, so they exclude each other across processes exactly like file writes. Inside the lock the provider re-reads the file, commits to the keychain, and then removes any copy of the credential from the file with an atomic rewrite. A copy still in the file is an unmigrated value and wins over the keychain entry on reads, because the next migration copies it over that entry; a write therefore becomes visible only after the file copy is gone.
+Writes and deletes of the three credentials run on the file store's operation queue. While the keychain is available, they also take its `<file>.lock` writer lock, re-read the file, commit to the keychain, and remove any file copy with an atomic rewrite. An unmigrated file value wins over the keychain entry because the next migration copies it over that entry. After a keychain failure, mutations stay on the queue but skip file locks and rewrites; memory entries override file values, with deletion markers preventing those values from reappearing. Migration accepts only writes verified in the OS keychain, never memory copies.
 
 ### Record text
 
@@ -104,7 +105,7 @@ No direct invalidation; stored values never enter a request prefix.
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- **Keychain changes from other processes publish no event** — reads go to the keychain on every call, so values stay current, but `credentials/reference-updated` and `credentials/record-updated` fire only for this process's writes and for file changes.
+- **Keychain changes from other processes publish no event** — while the keychain is available, reads query it on every call, but `credentials/reference-updated` and `credentials/record-updated` fire only for this process's writes and for file changes. Memory values are private to the provider instance.
 - **The credential set is fixed** — the three credentials are constants of the UNILUME desktop app, not configuration.
 - **The file stays a denied read path** — `agentDeniedReadPaths` still lists `.credentials.yaml`, because every other credential remains in it.
 

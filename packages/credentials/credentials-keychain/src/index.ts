@@ -10,11 +10,13 @@
  * - An entry still present in the credentials file is an unmigrated value and
  *   wins over the keychain entry: boot migration copies it over the keychain
  *   entry on its next attempt, so reads return what that attempt will keep.
- * - Writes and deletes take the credentials file's cross-process writer lock,
- *   commit to the keychain, then remove any file entry, so a write becomes
- *   visible only once no file entry shadows it.
- * - A keychain failure rejects the operation with a "keychain unavailable"
- *   error and logs the cause; nothing is written to the file instead.
+ * - While the keychain is available, writes and deletes take the credentials
+ *   file's cross-process writer lock, commit to the keychain, then remove any
+ *   file entry, so a write becomes visible once no file entry shadows it.
+ * - The first keychain failure logs its cause and switches this instance to
+ *   memory for every subsequent keychain operation, including the failed one.
+ *   Memory updates shadow unmigrated file entries without changing the file;
+ *   they are lost on restart, when a new instance tries the keychain again.
  *
  * Boot migration copies the file entries into the keychain, reads each entry
  * back and compares it with the file value, and only then rewrites the file
@@ -113,10 +115,8 @@ export function osKeychain(service: string = KEYCHAIN_SERVICE): Keychain {
       return bytes === null ? undefined : Buffer.from(bytes).toString('utf8')
     },
     async set(account, value) {
+      assertSecretSize(account, value)
       const bytes = Buffer.from(value, 'utf8')
-      if (bytes.length > MAX_SECRET_BYTES) {
-        throw new Error(`credentials-keychain: "${account}" is ${bytes.length} bytes, over the ${MAX_SECRET_BYTES}-byte keychain limit`)
-      }
       await (await entry(account)).setSecret(bytes)
     },
     delete: async account => (await entry(account)).deleteCredential(),
@@ -125,6 +125,14 @@ export function osKeychain(service: string = KEYCHAIN_SERVICE): Keychain {
 
 /** Windows Credential Manager's per-entry limit (CRED_MAX_CREDENTIAL_BLOB_SIZE); macOS allows more. */
 const MAX_SECRET_BYTES = 2560
+
+/** Reject oversized input before a backend call can mark the keychain unavailable. */
+function assertSecretSize(account: string, value: string): void {
+  const bytes = Buffer.byteLength(value, 'utf8')
+  if (bytes > MAX_SECRET_BYTES) {
+    throw new Error(`credentials-keychain: "${account}" is ${bytes} bytes, over the ${MAX_SECRET_BYTES}-byte keychain limit`)
+  }
+}
 
 /** Keychain account of one reference. */
 function refAccount(ref: string): string {
@@ -159,8 +167,29 @@ function isENOENT(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | null)?.code === 'ENOENT'
 }
 
-/** File store with the {@link KEYCHAIN_REFS} and {@link KEYCHAIN_RECORDS} credentials in the OS keychain. */
+/** File store with selected credentials in the OS keychain, or only in memory after a keychain failure. */
 export class KeychainCredentialProvider extends LocalCredentialProvider {
+  private keychainUnavailable = false
+  /** Undefined entries mask unmigrated file values deleted during this process. */
+  private readonly memoryEntries = new Map<string, string | undefined>()
+  private readonly memoryKeychain: Keychain = {
+    get: account => Promise.resolve(this.memoryEntries.get(account)),
+    set: (account, value) => {
+      this.memoryEntries.set(account, value)
+      return Promise.resolve()
+    },
+    delete: (account) => {
+      const existed = this.memoryEntries.get(account) !== undefined
+      this.memoryEntries.set(account, undefined)
+      return Promise.resolve(existed)
+    },
+  }
+
+  /** Availability can change during an awaited call from another operation. */
+  private isKeychainUnavailable(): boolean {
+    return this.keychainUnavailable
+  }
+
   /**
    * @param ctx - plugin context.
    * @param config - the file store's config.
@@ -182,16 +211,19 @@ export class KeychainCredentialProvider extends LocalCredentialProvider {
 
   override async resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined> {
     const base = await super.resolve(ref)
-    if (!KEYCHAIN_REFS.has(ref) || base?.source === 'env' || base?.source === 'file') return base
+    if (!KEYCHAIN_REFS.has(ref) || base?.source === 'env'
+      || (base?.source === 'file' && !this.memoryEntries.has(refAccount(ref)))) return base
     const value = await this.keychainRef(ref)
-    return value === undefined ? base : { value, source: KEYCHAIN_SOURCE }
+    return value === undefined ? (base?.source === 'file' ? undefined : base) : { value, source: KEYCHAIN_SOURCE }
   }
 
   override async describe(ref: CredentialRef): Promise<CredentialInfo> {
     const base = await super.describe(ref)
-    if (!KEYCHAIN_REFS.has(ref) || base.source === 'env' || base.source === 'file') return base
+    if (!KEYCHAIN_REFS.has(ref) || base.source === 'env'
+      || (base.source === 'file' && !this.memoryEntries.has(refAccount(ref)))) return base
     const value = await this.keychainRef(ref)
-    return value === undefined ? base : { configured: true, source: KEYCHAIN_SOURCE, writable: true }
+    if (value !== undefined) return { configured: true, source: KEYCHAIN_SOURCE, writable: true }
+    return base.source === 'file' ? { configured: false, writable: true } : base
   }
 
   override async set(ref: CredentialRef, value: string): Promise<void> {
@@ -202,6 +234,7 @@ export class KeychainCredentialProvider extends LocalCredentialProvider {
     await this.assertUnshadowedRef(ref, 'set')
     await this.locked(ref, 'set', async () => {
       await this.assertUnshadowedRef(ref, 'set')
+      assertSecretSize(refAccount(ref), value)
       await this.keychainCall(ref, keychain => keychain.set(refAccount(ref), value))
       if (!await this.removeFromFile([['refs', ref]])) this.notifyUpdated(ref)
     })
@@ -212,38 +245,40 @@ export class KeychainCredentialProvider extends LocalCredentialProvider {
     await this.assertUnshadowedRef(ref, 'unset')
     await this.locked(ref, 'unset', async () => {
       await this.assertUnshadowedRef(ref, 'unset')
+      const fileValue = !this.memoryEntries.has(refAccount(ref)) && (await super.describe(ref)).source === 'file'
       const existed = await this.keychainCall(ref, keychain => keychain.delete(refAccount(ref)))
-      if (!await this.removeFromFile([['refs', ref]]) && existed) this.notifyUpdated(ref)
+      if (!await this.removeFromFile([['refs', ref]]) && (existed || (this.keychainUnavailable && fileValue))) this.notifyUpdated(ref)
     })
   }
 
   override async readRecord(key: CredentialKey): Promise<CredentialRecord | undefined> {
     const fileRecord = await super.readRecord(key)
-    if (!KEYCHAIN_RECORDS.has(key) || fileRecord !== undefined) return fileRecord
+    if (!KEYCHAIN_RECORDS.has(key)
+      || (fileRecord !== undefined && !this.memoryEntries.has(recordAccount(key)))) return fileRecord
     return this.keychainRecord(key)
   }
 
   override async describeRecord(key: CredentialKey): Promise<CredentialRecordInfo> {
     const base = await super.describeRecord(key)
-    if (!KEYCHAIN_RECORDS.has(key) || base.configured) return base
+    if (!KEYCHAIN_RECORDS.has(key)
+      || (base.configured && !this.memoryEntries.has(recordAccount(key)))) return base
     const record = await this.keychainRecord(key)
-    return record === undefined ? base : { configured: true, kind: record.kind, writable: true }
+    return record === undefined ? { configured: false, writable: true } : { configured: true, kind: record.kind, writable: true }
   }
 
   /**
-   * File records plus the keychain-held records. A keychain-held record the
-   * keychain cannot answer for is logged and left out, so one unavailable
-   * store does not hide the other's records.
+   * File records plus keychain-held records, with memory updates and deletions
+   * taking precedence over unmigrated file records after a keychain failure.
    */
   override async listRecords(): Promise<readonly CredentialRecordEntry[]> {
-    const entries = [...await super.listRecords()]
+    const entries = (await super.listRecords()).filter(entry => !this.memoryEntries.has(recordAccount(entry.key)))
     for (const key of KEYCHAIN_RECORDS) {
       if (entries.some(entry => entry.key === key)) continue
       let record: CredentialRecord | undefined
       try {
         record = await this.keychainRecord(parseCredentialKey(key))
       } catch (error) {
-        // keychainCall has logged the cause; the record is listed as absent.
+        // Unreadable record text does not hide the other records.
         void error
         continue
       }
@@ -267,6 +302,7 @@ export class KeychainCredentialProvider extends LocalCredentialProvider {
       if (!isDeepStrictEqual(parseKeychainRecord(key, text), next)) {
         throw new TypeError(`credentials-keychain: record "${key}" holds a value JSON cannot represent`)
       }
+      assertSecretSize(recordAccount(key), text)
       await this.keychainCall(key, keychain => keychain.set(recordAccount(key), text))
       if (!await this.removeFromFile([['records', key]])) this.notifyRecordUpdated(key)
       return next
@@ -276,8 +312,11 @@ export class KeychainCredentialProvider extends LocalCredentialProvider {
   override async deleteRecord(key: CredentialKey): Promise<void> {
     if (!KEYCHAIN_RECORDS.has(key)) return super.deleteRecord(key)
     await this.locked(key, 'delete', async () => {
+      const fileRecord = !this.memoryEntries.has(recordAccount(key)) && await super.readRecord(key) !== undefined
       const existed = await this.keychainCall(key, keychain => keychain.delete(recordAccount(key)))
-      if (!await this.removeFromFile([['records', key]]) && existed) this.notifyRecordUpdated(key)
+      if (!await this.removeFromFile([['records', key]]) && (existed || (this.keychainUnavailable && fileRecord))) {
+        this.notifyRecordUpdated(key)
+      }
     })
   }
 
@@ -291,8 +330,8 @@ export class KeychainCredentialProvider extends LocalCredentialProvider {
   }
 
   /**
-   * Run one operation on the file store's queue under its cross-process writer
-   * lock, after folding the file's current content into the snapshot.
+   * Serialize mutations; persistent writes also take the file's writer lock
+   * and reconcile its current content. Memory operations need no file lock.
    */
   private locked<T>(subject: string, verb: string, operation: () => Promise<T>): Promise<T> {
     if (this.isClosed()) throw new Error(`credentials-keychain is disposed: cannot ${verb} "${subject}"`)
@@ -300,6 +339,7 @@ export class KeychainCredentialProvider extends LocalCredentialProvider {
       if (this.isClosed()) {
         throw new Error(`credentials-keychain was disposed before the queued "${subject}" ${verb} ran`)
       }
+      if (this.keychainUnavailable) return operation()
       await mkdir(dirname(this.spec.filename), { recursive: true, mode: 0o700 })
       return withFileLock(this.spec.filename, async () => {
         await this.reconcileFromDisk()
@@ -309,20 +349,25 @@ export class KeychainCredentialProvider extends LocalCredentialProvider {
   }
 
   /**
-   * Call the keychain; a failure is logged and rethrown as a "keychain
-   * unavailable" error naming the credential.
+   * Call the keychain until its first failure, then repeat that call and all
+   * subsequent calls in memory. Concurrent failures share one warning.
    */
   private async keychainCall<T>(subject: string, call: (keychain: Keychain) => Promise<T>): Promise<T> {
-    try {
-      return await call(this.keychain)
-    } catch (error) {
-      this.ctx.logger.warn('credentials-keychain: the OS keychain is unavailable for "%s"', subject)
-      this.ctx.logger.warn(error)
-      throw new Error(
-        `credentials-keychain: the OS keychain is unavailable for "${subject}"; allow keychain access and sign in again`,
-        { cause: error },
-      )
+    if (!this.isKeychainUnavailable()) {
+      try {
+        return await call(this.keychain)
+      } catch (error) {
+        if (!this.keychainUnavailable) {
+          this.keychainUnavailable = true
+          this.ctx.logger.warn(
+            'credentials-keychain: the OS keychain is unavailable for "%s"; credentials are kept in memory only for this process; sign in again after restarting: %O',
+            subject,
+            error,
+          )
+        }
+      }
     }
+    return call(this.memoryKeychain)
   }
 
   /** The keychain value of one reference; an empty entry is absent, like everywhere on the seam. */
@@ -343,6 +388,7 @@ export class KeychainCredentialProvider extends LocalCredentialProvider {
    * @returns whether any entry was in the file.
    */
   private async removeFromFile(entries: readonly FileEntry[]): Promise<boolean> {
+    if (this.keychainUnavailable) return false
     let text: string
     try {
       text = await readFile(this.spec.filename, 'utf8')
@@ -385,8 +431,12 @@ export class KeychainCredentialProvider extends LocalCredentialProvider {
         }
       }
       for (const { entry, account, value } of moves) {
-        await this.keychainCall(entry[1], keychain => keychain.set(account, value))
+        assertSecretSize(account, value)
+        // Migration must never accept memory storage as a persistent copy.
+        await this.keychainCall(entry[1], keychain => keychain === this.keychain ? keychain.set(account, value) : Promise.resolve())
+        if (this.isKeychainUnavailable()) return
         const stored = await this.keychainCall(entry[1], keychain => keychain.get(account))
+        if (this.isKeychainUnavailable()) return
         if (stored !== value) {
           throw new Error(`credentials-keychain: OS keychain entry "${account}" did not read back as written`)
         }

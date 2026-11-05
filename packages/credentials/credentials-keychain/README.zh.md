@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-credentials-keychain` 把 UNILUME 桌面版的三条凭据存进 OS 钥匙串（macOS 钥匙串、Windows 凭据管理器），不再放在明文凭据文件里：引用 `UNILUME_MODEL_TOKEN`，以及记录 `unilume-desktop/default` 和 `client-connection/browser-session`。其余凭据照旧存在 `.credentials.yaml`，行为与本提供方所继承的 [`dsh-credentials-local`](../credentials-local/README.zh.md) 完全一致。启动时，它把这三条凭据从已有文件中迁出。
+`dsh-credentials-keychain` 把 UNILUME 桌面版的三条凭据存进 OS 钥匙串（macOS 钥匙串、Windows 凭据管理器），不再放在明文凭据文件里：引用 `UNILUME_MODEL_TOKEN`，以及记录 `unilume-desktop/default` 和 `client-connection/browser-session`。其余凭据照旧存在 `.credentials.yaml`，行为与本提供方所继承的 [`dsh-credentials-local`](../credentials-local/README.zh.md) 完全一致。启动时，它把这三条凭据从已有文件中迁出；钥匙串调用失败后，新值只放在内存中，重启即丢失。
 
 ## 目录
 
@@ -52,8 +52,9 @@ kind: "package-reference"
 
 ### 可能出错的地方
 
-- **钥匙串不可用**——拒绝访问、钥匙串服务不存在或平台报错时，这三条凭据的读写都以“OS keychain is unavailable”错误失败，原因写进日志。不会改写到文件里；用户在允许访问后重新登录即可。`listRecords` 记录这次失败并略去这几条记录。
-- **登出**——`unset` 和 `deleteRecord` 会删除钥匙串条目，以及文件里仍残留的副本。
+- **钥匙串不可用**——第一次调用失败时，记录一条带原始错误的警告，并把这三条凭据切换到进程内存，触发失败的操作也在内存中完成。之后的读、写、删、描述和列举都走内存，不重试钥匙串，也不重复警告。不写凭据文件或临时文件。内存值在重启后丢失，用户需要重新登录；新进程照常先试钥匙串。尚未迁移的文件条目继续提供值，直到本次进程内的内存改写或删除覆盖它；文件和备份保持原样，留待下次迁移。
+- **条目超过 2560 个 UTF-8 字节**——写入在调用后端之前拒绝，内存模式也一样。这类输入错误不会把钥匙串标为不可用。
+- **登出**——钥匙串可用时，`unset` 和 `deleteRecord` 删除钥匙串条目以及文件里仍残留的副本。内存模式下，它们删除内存值，并在本次进程内隐藏尚未迁移的文件值，文件保持不变。
 
 -----
 
@@ -72,7 +73,7 @@ kind: "package-reference"
 
 ### 写入与文件锁
 
-这三条凭据的写入和删除，跑在文件存储的操作队列上，并持有它的 `<文件>.lock` 写锁，因此与文件写入一样跨进程互斥。持锁期间，提供方先重读文件，再提交到钥匙串，然后以原子改写从文件中去掉该凭据的副本。文件里仍有的副本是尚未迁移的值，读取时优先于钥匙串条目，因为下一次迁移会用它覆盖该条目；所以一次写入要等文件副本删掉后才可见。
+这三条凭据的写入和删除，跑在文件存储的操作队列上。钥匙串可用时，还会持有它的 `<文件>.lock` 写锁，重读文件、提交到钥匙串，再以原子改写去掉文件副本。尚未迁移的文件值优先于钥匙串条目，因为下一次迁移会用它覆盖该条目。钥匙串调用失败后，修改仍在队列中串行执行，但跳过文件锁和文件改写；内存条目覆盖文件值，删除标记防止文件旧值重新出现。迁移只接受经过读回校验的 OS 钥匙串写入，不接受内存副本。
 
 ### 记录文本
 
@@ -104,7 +105,7 @@ kind: "package-reference"
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- **其他进程对钥匙串的改动不发事件**——每次读取都直接查钥匙串，值始终是最新的；但 `credentials/reference-updated` 和 `credentials/record-updated` 只对本进程的写入和文件变化触发。
+- **其他进程对钥匙串的改动不发事件**——钥匙串可用时，每次读取都直接查询；但 `credentials/reference-updated` 和 `credentials/record-updated` 只对本进程的写入和文件变化触发。内存值只属于当前提供方实例。
 - **凭据集合是固定的**——这三条凭据是 UNILUME 桌面版的常量，不是配置项。
 - **文件仍是禁读路径**——`agentDeniedReadPaths` 照旧列出 `.credentials.yaml`，因为其余凭据仍在其中。
 
