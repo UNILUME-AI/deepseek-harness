@@ -1700,7 +1700,7 @@ it('hides excluded optional bundles and refuses direct activation and installati
   const activation = await manager.setBundleEnabled(name, true)
   expect(activation).toMatchObject(refused)
   await expect(JSON.stringify({
-    bundles: (await manager.listBundles()).map(bundle => bundle.name),
+    bundles: (await manager.listBundles()).map(bundle => bundle.name).filter(bundle => !OFFICIAL_ON_DEMAND_CATALOG.some(entry => entry.packageName === bundle)),
     activation: { application: activation.application, changed: activation.changed, diagnostic: activation.error?.diagnostic },
   }, undefined, 2) + '\n').toMatchFileSnapshot('expected/bundle-exclusion.json')
   const pnpm = vi.spyOn(operations, 'runProfilePnpm')
@@ -1717,7 +1717,8 @@ it('boots the manager while skipping a previously selected excluded bundle and p
   })
   expect(ctx.get('managedProbe')).toBeUndefined()
   expect(profile.startedBundles).toEqual(['core'])
-  expect((await manager.listBundles()).map(bundle => bundle.name)).toEqual(['core'])
+  // rc.5 also lists its on-demand Official catalog; this test only concerns the excluded profile bundle.
+  expect((await manager.listBundles()).map(bundle => bundle.name).filter(bundle => !OFFICIAL_ON_DEMAND_CATALOG.some(entry => entry.packageName === bundle))).toEqual(['core'])
   expect(await manager.setBundleEnabled('extra', true)).toMatchObject({ application: 'failed', changed: false })
   expect(await manager.setBundleEnabled('extra', false)).toMatchObject({ application: 'restart-required', changed: true })
   expect(readProfileManifest('test', dir).dsh?.profile?.bundles).toEqual(['core'])
