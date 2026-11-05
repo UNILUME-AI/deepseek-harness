@@ -414,6 +414,27 @@ describe('unavailable keychain', () => {
     expect(warn).toHaveBeenCalledTimes(1)
   })
 
+  it('reads back a keychain write that succeeds after a concurrent read switched to memory', async () => {
+    const path = await tempFile()
+    const keychain = new MemoryKeychain()
+    const ctx = await boot(path, keychain)
+    const setStarted = Promise.withResolvers<undefined>()
+    const releaseSet = Promise.withResolvers<undefined>()
+    vi.spyOn(keychain, 'set').mockImplementationOnce(async (account, value) => {
+      setStarted.resolve(undefined)
+      await releaseSet.promise
+      keychain.entries.set(account, value)
+    })
+
+    const write = put(ctx, DESKTOP, DESKTOP_RECORD)
+    await setStarted.promise
+    vi.spyOn(keychain, 'get').mockRejectedValueOnce(new Error('access denied'))
+    expect(await ctx.credentials.readRecord(DESKTOP)).toBeUndefined()
+    releaseSet.resolve(undefined)
+    expect(await write).toEqual(DESKTOP_RECORD)
+    expect(await ctx.credentials.readRecord(DESKTOP)).toEqual(DESKTOP_RECORD)
+  })
+
   it('rejects values over 2560 UTF-8 bytes without disabling the keychain', async () => {
     const path = await tempFile()
     const keychain = new MemoryKeychain()

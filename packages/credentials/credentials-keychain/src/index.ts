@@ -350,12 +350,15 @@ export class KeychainCredentialProvider extends LocalCredentialProvider {
 
   /**
    * Call the keychain until its first failure, then repeat that call and all
-   * subsequent calls in memory. Concurrent failures share one warning.
+   * subsequent calls in memory. A call that succeeds after a concurrent failure
+   * switched to memory is repeated in memory, so this process reads its own
+   * writes and deletions. Concurrent failures share one warning.
    */
   private async keychainCall<T>(subject: string, call: (keychain: Keychain) => Promise<T>): Promise<T> {
     if (!this.isKeychainUnavailable()) {
       try {
-        return await call(this.keychain)
+        const result = await call(this.keychain)
+        if (!this.isKeychainUnavailable()) return result
       } catch (error) {
         if (!this.keychainUnavailable) {
           this.keychainUnavailable = true
