@@ -2232,7 +2232,7 @@ export interface LspLocalServerConfig {
 
 - `inject`: `tools`
 - `refs`: [`ToolExecution`](subsystems/tools.md)
-- `source`: [`packages/mcp/mcp-client/src/index.ts:123`](../packages/mcp/mcp-client/src/index.ts)
+- `source`: [`packages/mcp/mcp-client/src/index.ts:139`](../packages/mcp/mcp-client/src/index.ts)
 
 ```ts config-catalog
 /** Configuration for one stdio or Streamable HTTP MCP server. */
@@ -2273,6 +2273,14 @@ export interface StdioConfig {
    * non-function value rejects plugin activation.
    */
   decorateTool?: McpToolDecorator
+  /**
+   * Programmatic hook run before each tool request, including decorator sibling calls.
+   * Throws reject the invocation without sending a request; non-function values reject activation.
+   * @param execution - exact ToolRuntime invocation requesting the call.
+   * @param rawName - upstream tool name sent to the server.
+   * @returns request `params._meta`, or undefined to omit it.
+   */
+  callMeta?: (execution: ToolExecution, rawName: string) => Record<string, unknown> | undefined
 }
 
 /** Config for connecting to an MCP server over Streamable HTTP (SSE). */
@@ -2306,6 +2314,14 @@ export interface StreamableHttpConfig {
    * non-function value rejects plugin activation.
    */
   decorateTool?: McpToolDecorator
+  /**
+   * Programmatic hook run before each tool request, including decorator sibling calls.
+   * Throws reject the invocation without sending a request; non-function values reject activation.
+   * @param execution - exact ToolRuntime invocation requesting the call.
+   * @param rawName - upstream tool name sent to the server.
+   * @returns request `params._meta`, or undefined to omit it.
+   */
+  callMeta?: (execution: ToolExecution, rawName: string) => Record<string, unknown> | undefined
 }
 
 /** Automatic reconnect policy for one MCP server connection. */
