@@ -268,7 +268,7 @@ it.each([en, zh])('keeps profile and account actions available without wallet UI
     } },
     balance: { status: 'ready', value: [{ currency: 'CNY', balance: '12.34' }],
       bonusWallets: [{ currency: 'CNY', balance: '5.00' }] },
-  })
+  }, undefined, { url: 'https://example.test/avatar.png', status: 'ready' })
   const section = screen.getByRole('region', { name: copy.nav })
   expect(within(section).getByText('Account User')).toBeTruthy()
   expect(within(section).getByText('u***@example.com')).toBeTruthy()
