@@ -185,6 +185,29 @@ describe('boot migration', () => {
 })
 
 describe('unavailable keychain', () => {
+  it('treats the keychain as unavailable when DSH_CREDENTIALS_KEYCHAIN=off, without calling it or writing the file', async () => {
+    vi.stubEnv('DSH_CREDENTIALS_KEYCHAIN', 'off')
+    cleanups.push(async () => { vi.unstubAllEnvs() })
+    const path = await tempFile()
+    await seedLegacy(path)
+    const before = await readFile(path, 'utf8')
+    const keychain = new UnavailableKeychain()
+    const warn = vi.fn<Context['logger']['warn']>()
+    const ctx = await boot(path, keychain, warn)
+
+    await put(ctx, DESKTOP, DESKTOP_RECORD)
+    await ctx.credentials.set(MODEL_TOKEN, 'model-token')
+    expect(await ctx.credentials.readRecord(DESKTOP)).toEqual(DESKTOP_RECORD)
+    expect(await ctx.credentials.resolve(MODEL_TOKEN)).toEqual({ value: 'model-token', source: 'keychain' })
+
+    expect(keychain.get).not.toHaveBeenCalled()
+    expect(keychain.set).not.toHaveBeenCalled()
+    expect(keychain.delete).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/DSH_CREDENTIALS_KEYCHAIN=off.*memory only/))
+    expect(await readFile(path, 'utf8')).toBe(before)
+  })
+
   it('keeps keychain-held credentials in memory, warns once, and writes nothing to the file', async () => {
     const path = await tempFile()
     await writeFile(path, 'version: 1\nrefs:\n  OTHER_KEY: other-value\n', { mode: 0o600 })
