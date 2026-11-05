@@ -197,6 +197,11 @@ export class KeychainCredentialProvider extends LocalCredentialProvider {
    */
   constructor(ctx: Context, config: Config, private readonly keychain: Keychain = osKeychain()) {
     super(ctx, config)
+    // Build smoke runs boot the desktop profile on the packaging machine; they must not touch its login keychain.
+    if (process.env.DSH_CREDENTIALS_KEYCHAIN === 'off') {
+      this.keychainUnavailable = true
+      ctx.logger.warn('credentials-keychain: DSH_CREDENTIALS_KEYCHAIN=off; credentials are kept in memory only for this process and never written to the file')
+    }
   }
 
   override async* [Service.init](): AsyncGenerator<() => Promise<void> | void, void, void> {
