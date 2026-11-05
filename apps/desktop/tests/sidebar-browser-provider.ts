@@ -49,6 +49,12 @@ export async function loadSidebarProvider(directory: string, config: Provider.Co
       : name === 'attachments' ? { dshHome: resolve(directory, 'home') } : {},
   }))), { mode: 0o600 })
   const ctx = new Context()
+  // rc.5 browser-use and search providers resolve the session directory through `workingDirectory`.
+  ctx.provide('workingDirectory', {
+    defaultDirectory: resolve(directory),
+    get: (session: Agent['session']) => session.header.cwd ?? resolve(directory),
+    ensure: (agent: Agent) => Promise.resolve(agent.session.header.cwd ?? resolve(directory)),
+  })
   try {
     ctx.baseUrl = pathToFileURL(directory).href + '/'
     await ctx.plugin(Loader)

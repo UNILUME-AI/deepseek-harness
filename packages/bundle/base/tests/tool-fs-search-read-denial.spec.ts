@@ -27,6 +27,12 @@ async function setup(mode: 'read-only' | 'workspace-write' | 'danger-full-access
   mkdirSync(join(root, 'child'))
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose() })
+  // rc.5 browser-use and search providers resolve the session directory through `workingDirectory`.
+  ctx.provide('workingDirectory', {
+    defaultDirectory: process.cwd(),
+    get: (session: Agent['session']) => session.header.cwd ?? process.cwd(),
+    ensure: (agent: Agent) => Promise.resolve(agent.session.header.cwd ?? process.cwd()),
+  })
   ctx.provide('credentials', { agentDeniedReadPaths: [file] })
   const spilled: string[] = []
   ctx.provide('spillStore', {

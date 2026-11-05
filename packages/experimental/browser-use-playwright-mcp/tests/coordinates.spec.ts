@@ -36,7 +36,7 @@ async function load(decorateTool: McpToolDecorator | undefined) {
     ['browserUse', BrowserUse], ['prompt', SystemPrompt], ['tools', Tools], ['llm', Llm],
     ['sessions', Sessions], ['agents', Agents], ['loop', AgentLoop], ['projections', Projections],
     ['browser', {
-      inject: ['browserUse', 'agents', 'tools', 'systemPrompt'],
+      inject: ['browserUse', 'agents', 'tools', 'systemPrompt', 'workingDirectory'],
       apply(ctx: Context) {
         mountSessionMcp(ctx, {
           name: 'pointer-fixture',
@@ -52,6 +52,12 @@ async function load(decorateTool: McpToolDecorator | undefined) {
   await writeFile(configPath, JSON.stringify([...modules.keys()].map(name => ({ id: name, name, config: name === 'loop' ? { agents: [] } : {} }))))
   const ctx = new Context()
   contexts.push(ctx)
+  // rc.5 browser-use and search providers resolve the session directory through `workingDirectory`.
+  ctx.provide('workingDirectory', {
+    defaultDirectory: process.cwd(),
+    get: (session: Agent['session']) => session.header.cwd ?? process.cwd(),
+    ensure: (agent: Agent) => Promise.resolve(agent.session.header.cwd ?? process.cwd()),
+  })
   ctx.baseUrl = pathToFileURL(root).href + '/'
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include
