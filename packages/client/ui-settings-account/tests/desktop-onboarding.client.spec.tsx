@@ -380,6 +380,7 @@ function mountWalletOnboarding(balance: 'zero' | 'failed' | 'loading', wallet: b
       links: { usageUrl: 'https://example.com/usage', topUpUrl: 'https://example.com/top_up' },
       ...wallet === undefined ? {} : { capabilities: { wallet } },
     },
+    avatar: undefined,
     failed: false,
     details: balance === 'loading' ? {} : { get balance() { return readBalance() } },
   }

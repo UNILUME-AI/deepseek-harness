@@ -20,11 +20,12 @@ it('hides a retained bonus notice when the account has no wallet', () => {
       links: { usageUrl: '', topUpUrl: '' },
     },
     details: { profile: { status: 'ready', value: { id: null, name: 'Account User', contact: null } } },
+    avatar: undefined,
     failed: false,
-    notice: { orderId: 'stale-bonus' as BonusNotice['orderId'], message: 'Awarded 5.00', expiresAt: '2099-01-01T00:00:00Z' },
+    notices: [{ orderId: 'stale-bonus' as BonusNotice['orderId'], message: 'Awarded 5.00', expiresAt: '2099-01-01T00:00:00Z' }],
   }
   const theme: ThemeSnapshot = {
-    preference: 'light', fontSize: 14, active: { id: 'light', colorScheme: 'light', tokens: {} }, themes: [], revision: 0,
+    preference: 'light', fontSizes: { text: 14, code: 11, terminal: 13 }, fontFamilies: { text: '', code: '', terminal: '' }, active: { id: 'light', colorScheme: 'light', tokens: {} }, themes: [], revision: 0,
   }
   const operations: AccountSectionInjected = {
     hooks: {
@@ -33,7 +34,7 @@ it('hides a retained bonus notice when the account has no wallet', () => {
     },
     refreshAccount: vi.fn(async () => {}),
     contactUs: vi.fn(), showLogin: vi.fn(), setOnboarding: vi.fn(),
-    bonusNoticeShown: vi.fn(), bonusNoticeDismissed: vi.fn(),
+    bonusNoticeShown: vi.fn(), bonusNoticeDismissed: vi.fn(), avatarFailed: vi.fn(),
     hasRunningAccountTasks: vi.fn(async () => false),
     start: vi.fn(async () => {}), cancel: vi.fn(async () => {}), signOut: vi.fn(async () => {}),
   }
