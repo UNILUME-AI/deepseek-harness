@@ -522,7 +522,7 @@ export class LocalCredentialProvider extends CredentialProvider {
     debounceMs: z.number().min(0).default(100),
   })
 
-  private readonly spec: ResolvedSpec
+  protected readonly spec: ResolvedSpec
   /**
    * Raw text of the last read or persisted document; `undefined` while the
    * file is absent. Watcher events whose content equals this cache are no-ops,
@@ -543,7 +543,7 @@ export class LocalCredentialProvider extends CredentialProvider {
   private closed = false
 
   /** Opaque read of {@link closed}: control flow cannot narrow it across awaits. */
-  private isClosed(): boolean {
+  protected isClosed(): boolean {
     return this.closed
   }
 
@@ -735,7 +735,7 @@ export class LocalCredentialProvider extends CredentialProvider {
   }
 
   /** Queue one exclusive document operation behind every earlier one. */
-  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+  protected enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const task = this.operations.then(operation)
     this.operations = task.then(() => undefined, () => undefined)
     return task
@@ -859,7 +859,7 @@ export class LocalCredentialProvider extends CredentialProvider {
    * and keeps the last good snapshot, a write fails loud rather than
    * overwriting a document it could not understand.
    */
-  private async reconcileFromDisk(): Promise<void> {
+  protected async reconcileFromDisk(): Promise<void> {
     // Re-checked on every reload and before every write: an external editor or
     // a restored backup can loosen the mode after boot.
     await assertOwnerOnly(this.spec.filename)

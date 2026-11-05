@@ -772,6 +772,20 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-cordis-host-runner -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-credentials-keychain -->
+<a id="deepseek-aidsh-credentials-keychain"></a>
+
+## `@deepseek-ai/dsh-credentials-keychain`
+
+- `refs`: [`LocalConfig`](#deepseek-aidsh-credentials-local)
+- `source`: [`packages/credentials/credentials-keychain/src/index.ts:49`](../packages/credentials/credentials-keychain/src/index.ts)
+
+```ts config-catalog
+/** Plugin config: the `dsh-credentials-local` file location and hot-reload fields, unchanged. */
+export interface Config extends LocalConfig {}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-credentials-keychain -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-credentials-local -->
 <a id="deepseek-aidsh-credentials-local"></a>
 
