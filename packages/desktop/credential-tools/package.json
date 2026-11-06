@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-desktop-credential-tools",
   "description": "Desktop-only model tools referencing Electron vault credentials by id, with shell-side approval and filling; no secret ever reaches the Host process",
-  "version": "0.2.0-rc.2",
+  "version": "0.2.1-rc.5",
   "publishConfig": {
     "access": "public"
   },
