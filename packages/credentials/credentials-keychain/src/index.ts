@@ -28,6 +28,7 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import { createHash } from 'node:crypto'
+import { realpathSync } from 'node:fs'
 import { mkdir, readdir, readFile, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -57,13 +58,28 @@ export const KEYCHAIN_SERVICE = 'UNILUME dsh credentials'
  * Keychain service of one harness home, so two homes under one OS user (an
  * installed app and a second `DSH_HOME`) never share entries. The default home
  * `~/.dsh` keeps {@link KEYCHAIN_SERVICE}, so entries written before this split stay readable.
+ * Homes are compared through symlinks and, on case-insensitive platforms, without case.
  * @param credentialsFile - the credentials document path; its directory is the harness home.
  * @param osHome - the OS home directory.
+ * @param platform - the platform deciding case sensitivity.
  * @returns the service name for that home.
  */
-export function keychainService(credentialsFile: string, osHome: string = homedir()): string {
-  const home = dirname(resolve(credentialsFile))
-  if (home === resolve(osHome, '.dsh')) return KEYCHAIN_SERVICE
+export function keychainService(
+  credentialsFile: string,
+  osHome: string = homedir(),
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const canonical = (path: string) => {
+    let real = resolve(path)
+    try {
+      real = realpathSync.native(real)
+    } catch {
+      // A home that does not exist yet keeps its resolved spelling.
+    }
+    return platform === 'win32' || platform === 'darwin' ? real.toLowerCase() : real
+  }
+  const home = canonical(dirname(credentialsFile))
+  if (home === canonical(join(osHome, '.dsh'))) return KEYCHAIN_SERVICE
   return `${KEYCHAIN_SERVICE} ${createHash('sha256').update(home).digest('hex').slice(0, 12)}`
 }
 

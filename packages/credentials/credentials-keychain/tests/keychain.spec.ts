@@ -3,7 +3,7 @@
 // every other credential keeps the file store's behavior.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { credentialKey, credentialRef } from '@deepseek-ai/dsh-credentials'
@@ -617,6 +617,18 @@ describe('keychain service per harness home', () => {
     expect(qa).toMatch(/^UNILUME dsh credentials [0-9a-f]{12}$/)
     expect(keychainService(join(osHome, 'qa-home', 'sub', '..', '.credentials.yaml'), osHome)).toBe(qa)
     expect(keychainService(join(osHome, 'other-home', '.credentials.yaml'), osHome)).not.toBe(qa)
+  })
+
+  it('spells one home the same way through case on case-insensitive platforms and through symlinks', async () => {
+    const osHome = join(tmpdir(), 'Os-Home')
+    expect(keychainService(join(osHome.toLowerCase(), '.DSH', '.credentials.yaml'), osHome, 'darwin')).toBe(KEYCHAIN_SERVICE)
+    expect(keychainService(join(osHome.toLowerCase(), '.DSH', '.credentials.yaml'), osHome, 'linux')).not.toBe(KEYCHAIN_SERVICE)
+
+    const real = await mkdtemp(join(tmpdir(), 'dsh-home-real-'))
+    const link = `${real}-link`
+    await symlink(real, link)
+    cleanups.push(() => rm(link, { force: true }), () => rm(real, { recursive: true, force: true }))
+    expect(keychainService(join(link, '.credentials.yaml'))).toBe(keychainService(join(real, '.credentials.yaml')))
   })
 
   it('two homes writing the same reference do not overwrite each other in the OS keychain', async () => {
