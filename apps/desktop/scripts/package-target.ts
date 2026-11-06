@@ -11,7 +11,7 @@ import {
 import { desktopArtifactOutput, desktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import { resolveDesktopBrand } from './desktop-brand.mjs'
 import { packageMacOSArtifacts, type DesktopPrepackagedArtifact } from './package-macos.ts'
-import { loadDesktopPackageEnvironment, localMacOSPackageEnvironment, validateDesktopPackageEnvironment } from './desktop-package-environment.mjs'
+import { loadDesktopPackageEnvironment, validateDesktopPackageEnvironment } from './desktop-package-environment.mjs'
 import { createPackagingRun, recordPackagingEvent } from './packaging-run.mjs'
 import { withWindowsSigningStage } from './windows-signing-stage.mjs'
 import { prepareWindowsSignatureCacheDirectory, resolveWindowsSignatureCacheDirectory } from './windows-signature-cache-directory.mjs'
@@ -345,11 +345,10 @@ async function main(): Promise<void> {
   if (invocation.skipNotarization) {
     process.stdout.write('desktop package: skipping notarization and stapling; internal debugging only, not qualified for distribution or update publishing\n')
   }
-  const environment = target.platform === 'darwin' && invocation.unsigned
-    ? localMacOSPackageEnvironment()
-    : loadDesktopPackageEnvironment(target.platform, process.env, APP_ROOT, {
-      unsigned: invocation.unsigned, prepareOnly: invocation.prepareOnly,
-    })
+  // unilume: unsigned Mac builds still read .env.macos; they ship self-signed with our app ID and update origin.
+  const environment = loadDesktopPackageEnvironment(target.platform, process.env, APP_ROOT, {
+    unsigned: invocation.unsigned, prepareOnly: invocation.prepareOnly,
+  })
   const productVersion = packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')
   // Release settings come from the selected configuration files, so the version this run publishes is an
   // argument; the environment variable below only carries it to the child processes that build.
