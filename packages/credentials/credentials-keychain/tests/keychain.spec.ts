@@ -3,14 +3,26 @@
 // every other credential keeps the file store's behavior.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { credentialKey, credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { CredentialRecord } from '@deepseek-ai/dsh-credentials'
 import { parseCredentialsDocument } from '@deepseek-ai/dsh-credentials-local'
-import { KeychainCredentialProvider } from '../src/index.ts'
+import { KEYCHAIN_SERVICE, KeychainCredentialProvider, keychainService } from '../src/index.ts'
 import type { Keychain } from '../src/index.ts'
+
+/** OS keychain stand-in keyed by service and account; only providers built without an injected keychain reach it. */
+const osEntries = vi.hoisted(() => new Map<string, Uint8Array>())
+vi.mock('@napi-rs/keyring', () => ({
+  AsyncEntry: class {
+    constructor(private readonly service: string, private readonly account: string) {}
+    private get key() { return `${this.service}\u0000${this.account}` }
+    getSecret() { return Promise.resolve(osEntries.get(this.key)) }
+    setSecret(bytes: Uint8Array) { osEntries.set(this.key, bytes); return Promise.resolve() }
+    deleteCredential() { return Promise.resolve(osEntries.delete(this.key)) }
+  },
+}))
 
 const MODEL_TOKEN = credentialRef('UNILUME_MODEL_TOKEN')
 const DESKTOP = credentialKey('unilume-desktop', 'default')
@@ -85,7 +97,7 @@ async function tempFile(): Promise<string> {
   return join(dir, '.credentials.yaml')
 }
 
-async function boot(path: string, keychain: Keychain, warn?: Context['logger']['warn']): Promise<Context> {
+async function boot(path: string, keychain: Keychain | undefined, warn?: Context['logger']['warn']): Promise<Context> {
   class Provider extends KeychainCredentialProvider {
     constructor(ctx: Context, config: { path: string; watch: boolean }) {
       super(ctx, config, keychain)
@@ -594,5 +606,40 @@ describe('writes', () => {
     await Promise.all(Array.from({ length: 10 }, (_, index) => increment(index % 2 === 0 ? first : second)))
 
     expect(await first.credentials.readRecord(DESKTOP)).toEqual({ kind: 'grant', payload: { count: 10 } })
+  })
+})
+
+describe('keychain service per harness home', () => {
+  it('keeps the original service name for the default home and a distinct stable one elsewhere', () => {
+    const osHome = join(tmpdir(), 'os-home')
+    expect(keychainService(join(osHome, '.dsh', '.credentials.yaml'), osHome)).toBe(KEYCHAIN_SERVICE)
+    const qa = keychainService(join(osHome, 'qa-home', '.credentials.yaml'), osHome)
+    expect(qa).toMatch(/^UNILUME dsh credentials [0-9a-f]{12}$/)
+    expect(keychainService(join(osHome, 'qa-home', 'sub', '..', '.credentials.yaml'), osHome)).toBe(qa)
+    expect(keychainService(join(osHome, 'other-home', '.credentials.yaml'), osHome)).not.toBe(qa)
+  })
+
+  it('spells one home the same way through case on case-insensitive platforms and through symlinks', async () => {
+    const osHome = join(tmpdir(), 'Os-Home')
+    expect(keychainService(join(osHome.toLowerCase(), '.DSH', '.credentials.yaml'), osHome, 'darwin')).toBe(KEYCHAIN_SERVICE)
+    expect(keychainService(join(osHome.toLowerCase(), '.DSH', '.credentials.yaml'), osHome, 'linux')).not.toBe(KEYCHAIN_SERVICE)
+
+    const real = await mkdtemp(join(tmpdir(), 'dsh-home-real-'))
+    const link = `${real}-link`
+    await symlink(real, link)
+    cleanups.push(() => rm(link, { force: true }), () => rm(real, { recursive: true, force: true }))
+    expect(keychainService(join(link, '.credentials.yaml'))).toBe(keychainService(join(real, '.credentials.yaml')))
+  })
+
+  it('two homes writing the same reference do not overwrite each other in the OS keychain', async () => {
+    osEntries.clear()
+    const prod = await boot(await tempFile(), undefined)
+    const qa = await boot(await tempFile(), undefined)
+    await prod.credentials.set(MODEL_TOKEN, 'prod-token')
+    await qa.credentials.set(MODEL_TOKEN, 'qa-token')
+
+    expect(await prod.credentials.resolve(MODEL_TOKEN)).toEqual({ value: 'prod-token', source: 'keychain' })
+    expect(await qa.credentials.resolve(MODEL_TOKEN)).toEqual({ value: 'qa-token', source: 'keychain' })
+    expect(osEntries.size).toBe(2)
   })
 })
