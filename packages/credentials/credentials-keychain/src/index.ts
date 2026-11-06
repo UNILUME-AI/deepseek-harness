@@ -27,8 +27,10 @@
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
+import { createHash } from 'node:crypto'
 import { mkdir, readdir, readFile, rm } from 'node:fs/promises'
-import { basename, dirname, join } from 'node:path'
+import { homedir } from 'node:os'
+import { basename, dirname, join, resolve } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { parseDocument } from 'yaml'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
@@ -50,6 +52,20 @@ export interface Config extends LocalConfig {}
 
 /** Keychain service name of every entry; the `UNILUME` prefix identifies the owner in OS keychain UIs. */
 export const KEYCHAIN_SERVICE = 'UNILUME dsh credentials'
+
+/**
+ * Keychain service of one harness home, so two homes under one OS user (an
+ * installed app and a second `DSH_HOME`) never share entries. The default home
+ * `~/.dsh` keeps {@link KEYCHAIN_SERVICE}, so entries written before this split stay readable.
+ * @param credentialsFile - the credentials document path; its directory is the harness home.
+ * @param osHome - the OS home directory.
+ * @returns the service name for that home.
+ */
+export function keychainService(credentialsFile: string, osHome: string = homedir()): string {
+  const home = dirname(resolve(credentialsFile))
+  if (home === resolve(osHome, '.dsh')) return KEYCHAIN_SERVICE
+  return `${KEYCHAIN_SERVICE} ${createHash('sha256').update(home).digest('hex').slice(0, 12)}`
+}
 
 /** References held in the keychain instead of the file. */
 export const KEYCHAIN_REFS: ReadonlySet<string> = new Set(['UNILUME_MODEL_TOKEN'])
@@ -169,6 +185,7 @@ function isENOENT(error: unknown): boolean {
 
 /** File store with selected credentials in the OS keychain, or only in memory after a keychain failure. */
 export class KeychainCredentialProvider extends LocalCredentialProvider {
+  private readonly keychain: Keychain
   private keychainUnavailable = false
   /** Undefined entries mask unmigrated file values deleted during this process. */
   private readonly memoryEntries = new Map<string, string | undefined>()
@@ -193,10 +210,11 @@ export class KeychainCredentialProvider extends LocalCredentialProvider {
   /**
    * @param ctx - plugin context.
    * @param config - the file store's config.
-   * @param keychain - keychain backend; the OS keychain unless a test injects one.
+   * @param keychain - keychain backend; the OS keychain under this home's {@link keychainService} unless a test injects one.
    */
-  constructor(ctx: Context, config: Config, private readonly keychain: Keychain = osKeychain()) {
+  constructor(ctx: Context, config: Config, keychain?: Keychain) {
     super(ctx, config)
+    this.keychain = keychain ?? osKeychain(keychainService(this.spec.filename))
     // Build smoke runs boot the desktop profile on the packaging machine; they must not touch its login keychain.
     if (process.env.DSH_CREDENTIALS_KEYCHAIN === 'off') {
       this.keychainUnavailable = true

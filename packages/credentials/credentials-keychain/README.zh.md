@@ -44,7 +44,7 @@ kind: "package-reference"
 | 记录 `unilume-desktop/default` | `UNILUME record unilume-desktop/default` | 记录的 JSON |
 | 记录 `client-connection/browser-session` | `UNILUME record client-connection/browser-session` | 记录的 JSON |
 
-所有条目的服务名都是 `UNILUME dsh credentials`。Windows 凭据管理器把条目命名为 `<账户名>.<服务名>`，因此每个条目名都以 `UNILUME` 开头。`resolve` 和 `describe` 报告来源 `keychain`；`listRecords` 和 `describeRecord` 会列出钥匙串中的记录，但不带值。对 `UNILUME_MODEL_TOKEN`，启动环境仍然优先，两个 `.env` 文件仍排在钥匙串之后。
+默认数据目录 `~/.dsh` 下的条目服务名是 `UNILUME dsh credentials`；其他 `DSH_HOME` 在后面加上该目录绝对路径 SHA-256 的前 12 位十六进制，同一系统用户下装好的应用和另一个数据目录不会共用条目。Windows 凭据管理器把条目命名为 `<账户名>.<服务名>`，因此每个条目名都以 `UNILUME` 开头。`resolve` 和 `describe` 报告来源 `keychain`；`listRecords` 和 `describeRecord` 会列出钥匙串中的记录，但不带值。对 `UNILUME_MODEL_TOKEN`，启动环境仍然优先，两个 `.env` 文件仍排在钥匙串之后。
 
 ### 从已有文件迁出凭据
 

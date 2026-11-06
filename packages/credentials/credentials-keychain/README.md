@@ -44,7 +44,7 @@ It accepts the same configuration fields as [`dsh-credentials-local`](../credent
 | record `unilume-desktop/default` | `UNILUME record unilume-desktop/default` | the record as JSON |
 | record `client-connection/browser-session` | `UNILUME record client-connection/browser-session` | the record as JSON |
 
-Every entry uses the service name `UNILUME dsh credentials`. Windows Credential Manager names an entry `<account>.<service>`, so each entry name starts with `UNILUME`. `resolve` and `describe` report the source `keychain`; `listRecords` and `describeRecord` include keychain records without their values. The launch environment still wins for `UNILUME_MODEL_TOKEN`, and the `.env` files still rank below the keychain.
+Entries under the default harness home `~/.dsh` use the service name `UNILUME dsh credentials`; any other `DSH_HOME` appends the first 12 hex digits of the SHA-256 of that home's absolute path, so an installed app and a second home under the same OS user never share entries. Windows Credential Manager names an entry `<account>.<service>`, so each entry name starts with `UNILUME`. `resolve` and `describe` report the source `keychain`; `listRecords` and `describeRecord` include keychain records without their values. The launch environment still wins for `UNILUME_MODEL_TOKEN`, and the `.env` files still rank below the keychain.
 
 ### Moving credentials out of an existing file
 
